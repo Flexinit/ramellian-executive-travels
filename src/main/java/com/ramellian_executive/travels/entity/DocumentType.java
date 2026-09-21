@@ -1,0 +1,12 @@
+package com.ramellian_executive.travels.entity;
+
+public enum DocumentType {
+    NATIONAL_ID,
+    PASSPORT,
+    DRIVING_LICENSE,
+    PROOF_OF_ADDRESS,
+    BUSINESS_REGISTRATION,
+    TAX_CERTIFICATE,
+    INSURANCE_STICKER,
+    VEHICLE_REGISTRATION
+}

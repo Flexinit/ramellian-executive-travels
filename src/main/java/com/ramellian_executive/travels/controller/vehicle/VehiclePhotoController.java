@@ -1,0 +1,19 @@
+package com.ramellian_executive.travels.controller.vehicle;
+import com.ramellian_executive.travels.model.VehiclePhotoResponse;
+import com.ramellian_executive.travels.service.vehicle.VehiclePhotoService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import java.util.UUID;
+
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/v1/vehicles")
+public class VehiclePhotoController {
+    private final VehiclePhotoService service;
+    @PostMapping("/{id}/photos")
+    public VehiclePhotoResponse upload(@PathVariable UUID id, @RequestParam("file") MultipartFile file, Authentication authentication) {
+        return service.upload(id, file, authentication);
+    }
+}
