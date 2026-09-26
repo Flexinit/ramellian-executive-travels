@@ -16,8 +16,10 @@ import java.util.List;
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/reviews")
 public class VehicleReviewController {
+
     private final VehicleReviewService service;
     private final BookingRepository bookingRepository;
+
     @PostMapping("/bookings/{bookingId}")
     public ReviewResponse create(@PathVariable UUID bookingId, @Valid @RequestBody ReviewRequest request, Authentication authentication) {
         Booking booking = bookingRepository.findById(bookingId)
@@ -28,5 +30,10 @@ public class VehicleReviewController {
     @GetMapping("/vehicles/{vehicleId}")
     public List<ReviewResponse> findByVehicle(@PathVariable UUID vehicleId) {
         return service.findByVehicle(vehicleId);
+    }
+
+    @GetMapping("/owners/{ownerId}")
+    public List<ReviewResponse> findByOwner(@PathVariable UUID ownerId) {
+        return service.findByOwner(ownerId);
     }
 }

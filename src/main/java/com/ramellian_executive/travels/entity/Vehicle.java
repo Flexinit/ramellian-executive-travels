@@ -53,8 +53,8 @@ public class Vehicle extends AbstractEntity {
     @Column(name = "comprehensive_insurance", columnDefinition = "boolean default false")
     private boolean comprehensiveInsurance;
 
-    @Column(name = "insurance_verification_sticker")
-    private String insuranceVerificationSticker;
+    @Column(name = "insurance_verification_sticker_photo")
+    private String insuranceVerificationStickerPhoto;
 
     @Column(name = "capacity")
     private int capacity;
@@ -79,4 +79,17 @@ public class Vehicle extends AbstractEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "trip_type")
     private Set<TripType> tripTypes = new HashSet<>();
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "approval_status", nullable = false)
+    private VehicleApprovalStatus approvalStatus = VehicleApprovalStatus.PENDING;
+
+    @Column(name = "approval_notes", length = 2000)
+    private String approvalNotes;
+
+    @Column(name = "reviewed_by")
+    private String reviewedBy;
+
+    @Column(name = "reviewed_at")
+    private ZonedDateTime reviewedAt;
 }

@@ -25,8 +25,8 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping("/me")
-    public UserResponse currentUser(Authentication authentication) {
-        return userService.currentUser(authentication);
+    public UserResponse getUserDetails(Authentication authentication) {
+        return userService.getUserDetails(authentication);
     };
 
     @PatchMapping("/me")

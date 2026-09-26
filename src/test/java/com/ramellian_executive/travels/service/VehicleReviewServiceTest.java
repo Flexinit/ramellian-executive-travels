@@ -4,6 +4,7 @@ import com.ramellian_executive.travels.entity.*;
 import com.ramellian_executive.travels.model.ReviewRequest;
 import com.ramellian_executive.travels.model.ReviewResponse;
 import com.ramellian_executive.travels.repository.ReviewRepository;
+import com.ramellian_executive.travels.repository.UserRepository;
 import com.ramellian_executive.travels.repository.vehicle.VehicleRepository;
 import com.ramellian_executive.travels.service.vehicle.VehicleReviewService;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,7 @@ class VehicleReviewServiceTest {
 
     @Mock ReviewRepository reviewRepository;
     @Mock VehicleRepository vehicleRepository;
+    @Mock UserRepository userRepository;
     @Mock Authentication authentication;
     @InjectMocks
     VehicleReviewService service;
@@ -49,5 +51,32 @@ class VehicleReviewServiceTest {
         assertEquals(5.0, response.rating());
         verify(vehicleRepository).save(vehicle);
         assertEquals(5.0, vehicle.getRating());
+    }
+
+    @Test
+    void findsReviewsByOwner() {
+        UUID ownerId = UUID.randomUUID();
+        when(userRepository.existsById(ownerId)).thenReturn(true);
+        Review review = new Review();
+        review.setId(UUID.randomUUID());
+        Booking booking = new Booking();
+        booking.setId(UUID.randomUUID());
+        Vehicle vehicle = new Vehicle();
+        vehicle.setId(UUID.randomUUID());
+        booking.setVehicle(vehicle);
+        User renter = new User();
+        renter.setId(UUID.randomUUID());
+        renter.setFirstName("John");
+        renter.setLastName("Doe");
+        booking.setUser(renter);
+        review.setBooking(booking);
+        review.setRating(4.5);
+        review.setFeedback("Awesome car");
+        when(reviewRepository.findAllByVehicleOwnerId(ownerId)).thenReturn(java.util.List.of(review));
+
+        java.util.List<ReviewResponse> result = service.findByOwner(ownerId);
+
+        assertEquals(1, result.size());
+        assertEquals("Awesome car", result.get(0).feedback());
     }
 }

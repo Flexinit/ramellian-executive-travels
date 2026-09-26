@@ -40,8 +40,9 @@ public class DocumentController {
 
     @PutMapping("/admin/{id}/review")
     public DocumentResponse review(@PathVariable UUID id,
-                                   @Valid @RequestBody DocumentReviewRequest request) {
-        return documentService.review(id, request);
+                                   @Valid @RequestBody DocumentReviewRequest request,
+                                   Authentication authentication) {
+        return documentService.review(id, request, authentication);
     }
 
     @GetMapping("/{id}/content")

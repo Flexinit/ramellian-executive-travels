@@ -2,7 +2,9 @@ package com.ramellian_executive.travels.model;
 
 import com.ramellian_executive.travels.entity.TripType;
 import com.ramellian_executive.travels.entity.Vehicle;
+import com.ramellian_executive.travels.entity.VehicleApprovalStatus;
 
+import java.time.ZonedDateTime;
 import java.util.Set;
 import java.util.UUID;
 
@@ -22,13 +24,44 @@ public record VehicleResponse(
         boolean selfDrive,
         boolean chauffeured,
         Set<TripType> tripTypes,
-        String ownerEmail) {
+        String ownerEmail,
+        boolean hasWorkingAC,
+        boolean comprehensiveInsurance,
+        String insuranceVerificationStickerPhoto,
+        ZonedDateTime availableFrom,
+        ZonedDateTime availableTo,
+        VehicleApprovalStatus approvalStatus,
+        String approvalNotes,
+        String reviewedBy,
+        ZonedDateTime reviewedAt
+) {
 
     public static VehicleResponse from(Vehicle vehicle) {
-        return new VehicleResponse(vehicle.getId(), vehicle.getModel(), vehicle.getVIN(),
-                vehicle.getRegistrationNumber(), vehicle.getLocation(), vehicle.getPricePerDay(),
-                vehicle.getRating(), vehicle.isAvailable(), vehicle.getCapacity(), vehicle.getColor(),
-                vehicle.getFuelType(), vehicle.getTransmissionType(), vehicle.isSelfDrive(),
-                vehicle.isChauffeured(), vehicle.getTripTypes(), vehicle.getOwner().getEmailAddress());
+        return new VehicleResponse(
+                vehicle.getId(),
+                vehicle.getModel(),
+                vehicle.getVIN(),
+                vehicle.getRegistrationNumber(),
+                vehicle.getLocation(),
+                vehicle.getPricePerDay(),
+                vehicle.getRating(),
+                vehicle.isAvailable(),
+                vehicle.getCapacity(),
+                vehicle.getColor(),
+                vehicle.getFuelType(),
+                vehicle.getTransmissionType(),
+                vehicle.isSelfDrive(),
+                vehicle.isChauffeured(),
+                vehicle.getTripTypes(),
+                vehicle.getOwner() != null ? vehicle.getOwner().getEmailAddress() : null,
+                vehicle.isHasWorkingAC(),
+                vehicle.isComprehensiveInsurance(),
+                vehicle.getInsuranceVerificationStickerPhoto(),
+                vehicle.getAvailableFrom(),
+                vehicle.getAvailableTo(),
+                vehicle.getApprovalStatus(),
+                vehicle.getApprovalNotes(),
+                vehicle.getReviewedBy(),
+                vehicle.getReviewedAt());
     }
 }

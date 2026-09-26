@@ -22,6 +22,18 @@ public class User extends AbstractEntity {
     @Column(name = "owner_type")
     private String ownerType;
 
+    @Column(name = "is_car_owner", nullable = false, columnDefinition = "boolean default false")
+    private boolean isCarOwner;
+
+    @Column(name = "is_car_renter", nullable = false, columnDefinition = "boolean default false")
+    private boolean isCarRenter;
+
+    @Column(name = "has_added_vehicle_to_profile", nullable = false, columnDefinition = "boolean default false")
+    private boolean addedVehicleToProfile;
+
+    @Column(name = "has_completed_profile", nullable = false, columnDefinition = "boolean default false")
+    private boolean completedProfile;
+
     @Column(name = "business_name")
     private String businessName;
 
@@ -55,20 +67,38 @@ public class User extends AbstractEntity {
     @Column(name = "email_address", nullable = false, unique = true)
     private String emailAddress;
 
-    @Column(name = "id_number")
+    @Column(name = "id_number", unique = true)
     private String idNumber;
 
-    @Column(name = "phone_number")
+    @Column(name = "id_number_url_front")
+    private String idNumberUrlFront;
+
+    @Column(name = "id_number_url_back")
+    private String idNumberUrlBack;
+
+    @Column(name = "driving_license_front_url")
+    private String drivingLicenseFrontUrl;
+
+    @Column(name = "driving_license_back_url")
+    private String drivingLicenseBackUrl;
+
+    @Column(name = "phone_number", unique = true)
     private String phoneNumber;
 
-    @Column(name = "profile_photo")
-    private String profilePhoto;
+    @Column(name = "profile_photo_url")
+    private String profilePhotoUrl;
 
     @Column(name = "password")
     private String password;
 
     @Column(name = "rating")
     private Double rating;
+
+    @Column(name = "google_id", unique = true)
+    private String googleId;
+
+    @Column(name = "auth_provider")
+    private String authProvider = "EMAIL";
 
     @Column(name = "verification_token")
     private String verificationToken;
@@ -104,4 +134,10 @@ public class User extends AbstractEntity {
             inverseJoinColumns = @JoinColumn(name = "role_id"))
     private Set<UserRole> roles = new HashSet<>();
 
+    @ManyToMany
+    @JoinTable(
+            name = "user_direct_permissions",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "permission_id"))
+    private Set<Permission> directPermissions = new HashSet<>();
 }

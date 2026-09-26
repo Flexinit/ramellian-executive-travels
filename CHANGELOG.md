@@ -6,6 +6,33 @@ the backend. Every future code change should add an entry under
 
 ## Unreleased
 
+### Vehicle Approval Workflow & Availability Enforcement
+
+- Added `VehicleApprovalStatus` enum (`PENDING`, `APPROVED`, `REJECTED`).
+- Added approval fields to `Vehicle` entity: `approvalStatus`, `approvalNotes`, `reviewedBy`, and `reviewedAt`.
+- Enforced vehicle availability constraint: vehicles default to `PENDING` approval and `available = false` upon creation and cannot be made available until reviewed and approved by an administrator.
+- Added administrator vehicle approval and rejection endpoints with review notes:
+  - `PUT /api/v1/vehicles/admin/{id}/review` (and `PUT /api/v1/vehicles/{id}/review`)
+  - `GET /api/v1/vehicles/admin/pending`: Retrieve list of all vehicles pending admin approval.
+  - `GET /api/v1/vehicles/admin/all` (and `GET /api/v1/vehicles/admin`): Retrieve all vehicles for admins with optional `status` filter.
+  - `GET /api/v1/vehicles/me`: Retrieve current owner's vehicles with their approval statuses and review notes.
+- Updated vehicle search query and available vehicle queries to only display vehicles that are `available = true` and `approvalStatus = APPROVED`.
+- Enforced booking validation ensuring bookings can only be placed on approved vehicles.
+- Added in-app notifications and email notifications to vehicle owners whenever their vehicle is approved or rejected with administrator notes.
+- Integrated audit log recording for vehicle creation, approval, and rejection events in `AuditLogService`.
+- Added `Permission.VEHICLE_REVIEW` and `Permission.VEHICLE_APPROVE` mapped to `SUPER_ADMIN` and `ADMIN` roles.
+
+### Super Admin Seeding, Document Notifications & System Audit Trail
+
+- Added automated super admin account database seeding in `AuthorizationDataInitializer` configurable via `app.superadmin.*` / environment variables (`SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD`, `SUPER_ADMIN_PHONE`, etc.).
+- Default super admin seeded account: `superadmin@ramellian.com` / `SuperAdmin@12345`.
+- Added automated in-app and email notifications dispatched to document owners upon document approval or rejection with administrator review notes in `DocumentService` and `VerificationNotificationService`.
+- Added system audit trail logging (`AuditLog` entity, `AuditLogRepository`, and `AuditLogService`) to record activity logs for document reviews, user registrations, logins, verification, status changes, and administrative operations.
+- Added online system trail log endpoints for Super Admins and Admins:
+  - `GET /api/v1/audit-logs` (or `/api/v1/admin/audit-logs`): Paginated audit trail log entries with filtering by action, actor email, and resource type.
+  - `GET /api/v1/audit-logs/{id}`: Detailed audit log entry retrieval.
+- Added `Permission.AUDIT_READ` mapped to `SUPER_ADMIN` and `ADMIN` roles.
+
 ### Identity, vehicle, and owner documents
 
 - Added `UserDocument` records with pending, approved, and rejected review

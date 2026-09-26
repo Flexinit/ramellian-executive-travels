@@ -1,6 +1,7 @@
 
 package com.ramellian_executive.travels.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
@@ -36,18 +37,17 @@ public class AbstractEntity {
     @Column(name = "all_info_given",columnDefinition = "boolean default false")
     private boolean allInfoGiven;
 
-    @Column(name = "approval_status", columnDefinition = "VARCHAR(255) DEFAULT 'unspecified'")
-    private String approvalStatus;
-
-
+    @JsonIgnore
     @LastModifiedDate
     @Column(name = "last_modified_at")
     private ZonedDateTime lastModifiedAt;
 
+    @JsonIgnore
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private ZonedDateTime createdAt;
 
+    @JsonIgnore
     @CreatedDate
     @Column(name = "updated_at",nullable = true, updatable = true)
     private ZonedDateTime updatedAt;

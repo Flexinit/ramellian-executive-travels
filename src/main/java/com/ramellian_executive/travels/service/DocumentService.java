@@ -4,6 +4,8 @@ import com.ramellian_executive.travels.entity.*;
 import com.ramellian_executive.travels.model.*;
 import com.ramellian_executive.travels.repository.*;
 import com.ramellian_executive.travels.repository.vehicle.VehicleRepository;
+import com.ramellian_executive.travels.security.VerificationNotificationService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.core.io.Resource;
@@ -23,14 +25,31 @@ public class DocumentService {
     private final UserRepository userRepository;
     private final UserDocumentRepository documentRepository;
     private final VehicleRepository vehicleRepository;
+    private final NotificationService appNotificationService;
+    private final VerificationNotificationService emailNotificationService;
+    private final AuditLogService auditLogService;
     private final Path directory;
 
     public DocumentService(UserRepository userRepository, UserDocumentRepository documentRepository,
                            VehicleRepository vehicleRepository,
                            @Value("${app.document.directory:uploads/documents}") String directory) {
+        this(userRepository, documentRepository, vehicleRepository, null, null, null, directory);
+    }
+
+    @Autowired
+    public DocumentService(UserRepository userRepository,
+                           UserDocumentRepository documentRepository,
+                           VehicleRepository vehicleRepository,
+                           NotificationService appNotificationService,
+                           VerificationNotificationService emailNotificationService,
+                           AuditLogService auditLogService,
+                           @Value("${app.document.directory:uploads/documents}") String directory) {
         this.userRepository = userRepository;
         this.documentRepository = documentRepository;
         this.vehicleRepository = vehicleRepository;
+        this.appNotificationService = appNotificationService;
+        this.emailNotificationService = emailNotificationService;
+        this.auditLogService = auditLogService;
         this.directory = Paths.get(directory).toAbsolutePath().normalize();
     }
 
@@ -64,7 +83,20 @@ public class DocumentService {
         document.setOriginalFileName(file.getOriginalFilename());
         document.setContentType(file.getContentType());
         document.setFileSize(file.getSize());
-        return DocumentResponse.from(documentRepository.save(document));
+        UserDocument saved = documentRepository.save(document);
+
+        if (auditLogService != null) {
+            auditLogService.logAction(
+                    authentication,
+                    "DOCUMENT_UPLOAD",
+                    "DOCUMENT",
+                    saved.getId() != null ? saved.getId().toString() : null,
+                    "Uploaded document of type " + documentType,
+                    "SUCCESS"
+            );
+        }
+
+        return DocumentResponse.from(saved);
     }
 
     @Transactional(readOnly = true)
@@ -81,6 +113,11 @@ public class DocumentService {
 
     @Transactional
     public DocumentResponse review(UUID id, DocumentReviewRequest request) {
+        return review(id, request, null);
+    }
+
+    @Transactional
+    public DocumentResponse review(UUID id, DocumentReviewRequest request, Authentication authentication) {
         UserDocument document = documentRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
         String status = normalize(request.status());
@@ -96,7 +133,49 @@ public class DocumentService {
         }
         document.setReviewStatus(reviewStatus);
         document.setReviewNotes(request.notes());
-        return DocumentResponse.from(documentRepository.save(document));
+        UserDocument saved = documentRepository.save(document);
+
+        // Send In-app Notification to document owner
+        if (appNotificationService != null && saved.getUser() != null) {
+            String statusTitle = reviewStatus == DocumentReviewStatus.APPROVED ? "Approved" : "Rejected";
+            String docTypeName = saved.getDocumentType() != null ? saved.getDocumentType().name() : "Document";
+            String noteSuffix = (saved.getReviewNotes() != null && !saved.getReviewNotes().isBlank())
+                    ? " Notes: " + saved.getReviewNotes()
+                    : "";
+            appNotificationService.createNotification(
+                    saved.getUser(),
+                    "Document " + statusTitle,
+                    "Your " + docTypeName + " document has been " + statusTitle.toLowerCase() + "." + noteSuffix,
+                    "DOCUMENT_REVIEW",
+                    saved.getId(),
+                    "DOCUMENT"
+            );
+        }
+
+        // Send Email Notification to document owner
+        if (emailNotificationService != null) {
+            try {
+                emailNotificationService.sendDocumentReviewNotification(saved);
+            } catch (Exception ignored) {
+            }
+        }
+
+        // Record Audit Log
+        if (auditLogService != null) {
+            auditLogService.logAction(
+                    authentication,
+                    "DOCUMENT_REVIEW_" + reviewStatus.name(),
+                    "DOCUMENT",
+                    saved.getId() != null ? saved.getId().toString() : null,
+                    "Document (" + (saved.getDocumentType() != null ? saved.getDocumentType().name() : "") + ") for user "
+                            + (saved.getUser() != null ? saved.getUser().getEmailAddress() : "unknown")
+                            + " reviewed as " + reviewStatus.name()
+                            + (saved.getReviewNotes() != null && !saved.getReviewNotes().isBlank() ? " with notes: " + saved.getReviewNotes() : ""),
+                    "SUCCESS"
+            );
+        }
+
+        return DocumentResponse.from(saved);
     }
 
     public Resource download(UUID id, Authentication authentication) {

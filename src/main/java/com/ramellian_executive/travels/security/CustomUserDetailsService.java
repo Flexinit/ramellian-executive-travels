@@ -10,6 +10,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -21,6 +22,7 @@ public class CustomUserDetailsService implements UserDetailsService {
     private final UserRepository userRepository;
 
     @Override
+    @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         User user = userRepository.findByEmailAddressIgnoreCase(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
@@ -32,8 +34,13 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .flatMap(role -> role.getPermissions().stream())
                 .map(Permission::getPermissionName)
                 .collect(Collectors.toSet());
+        if (user.getDirectPermissions() != null) {
+            permissions.addAll(user.getDirectPermissions().stream()
+                    .map(Permission::getPermissionName)
+                    .collect(Collectors.toSet()));
+        }
         if (roles.isEmpty()) {
-            roles.add(UserRole.RENTER);
+            roles.add(UserRole.CAR_RENTER);
         }
 
         Set<SimpleGrantedAuthority> authorities = roles.stream()

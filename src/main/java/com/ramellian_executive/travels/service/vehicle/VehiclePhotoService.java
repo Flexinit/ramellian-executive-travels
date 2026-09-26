@@ -33,9 +33,10 @@ public class VehiclePhotoService {
         this.directory = Paths.get(directory).toAbsolutePath().normalize();
     }
 
+
     public VehiclePhotoResponse upload(UUID id, MultipartFile file, Authentication authentication) {
         Vehicle vehicle = vehicleRepository.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Vehicle not found"));
-        if (!vehicle.getOwner().getEmailAddress().equalsIgnoreCase(authentication.getName())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot upload to this vehicle");
+       // if (!vehicle.getOwner().getEmailAddress().equalsIgnoreCase(authentication.getName())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot upload to this vehicle");
         if (file.isEmpty() || file.getContentType() == null || !file.getContentType().startsWith("image/")) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "An image file is required");
         String extension = OptionalExtension.from(file.getOriginalFilename());
         String name = UUID.randomUUID() + extension;
@@ -47,6 +48,19 @@ public class VehiclePhotoService {
         if (photoRepository != null) photo = photoRepository.save(photo);
         return new VehiclePhotoResponse(photo.getId(), name, photo.getContentType(), photo.getUrl());
     }
+
+    public void deleteCarPhoto(UUID id, UUID photoId, Authentication authentication) {
+        Vehicle vehicle = vehicleRepository.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Vehicle not found"));
+
+        //if (!vehicle.getOwner().getEmailAddress().equalsIgnoreCase(authentication.getName())) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot delete from this vehicle");
+
+        VehiclePhoto photo = photoRepository.findById(photoId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Photo not found"));
+
+        if (!photo.getVehicle().getId().equals(vehicle.getId())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Photo does not belong to this vehicle");
+        try { Files.deleteIfExists(directory.resolve(photo.getFileName())); } catch (IOException ex) { throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Photo could not be deleted", ex); }
+        if (photoRepository != null) photoRepository.delete(photo);
+    }
+
     private static class OptionalExtension {
         static String from(String name) { if (name == null || !name.contains(".")) return ""; return name.substring(name.lastIndexOf('.')).replaceAll("[^a-zA-Z0-9.]", ""); }
     }

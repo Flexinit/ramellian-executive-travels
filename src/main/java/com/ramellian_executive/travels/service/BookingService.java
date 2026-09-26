@@ -7,6 +7,7 @@ import com.ramellian_executive.travels.repository.UserRepository;
 import com.ramellian_executive.travels.repository.vehicle.VehicleRepository;
 import com.ramellian_executive.travels.repository.UserDocumentRepository;
 import com.ramellian_executive.travels.repository.PaymentRepository;
+import com.ramellian_executive.travels.security.VerificationNotificationService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -29,28 +30,47 @@ public class BookingService {
     private final UserRepository userRepository;
     private final UserDocumentRepository documentRepository;
     private final PaymentRepository paymentRepository;
+    private final VerificationNotificationService notificationService;
+    private final NotificationService appNotificationService;
     @Value("${app.booking.pending-expiration-ms:900000}")
     private long pendingExpirationMs;
 
     public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
                           UserRepository userRepository, UserDocumentRepository documentRepository) {
-        this(bookingRepository, vehicleRepository, userRepository, documentRepository, null);
+        this(bookingRepository, vehicleRepository, userRepository, documentRepository, null, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
                           UserRepository userRepository, UserDocumentRepository documentRepository,
-                          PaymentRepository paymentRepository) {
+                          PaymentRepository paymentRepository,
+                          VerificationNotificationService notificationService,
+                          NotificationService appNotificationService) {
         this.bookingRepository = bookingRepository;
         this.vehicleRepository = vehicleRepository;
         this.userRepository = userRepository;
         this.documentRepository = documentRepository;
         this.paymentRepository = paymentRepository;
+        this.notificationService = notificationService;
+        this.appNotificationService = appNotificationService;
+    }
+
+    public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
+                          UserRepository userRepository, UserDocumentRepository documentRepository,
+                          PaymentRepository paymentRepository,
+                          VerificationNotificationService notificationService) {
+        this(bookingRepository, vehicleRepository, userRepository, documentRepository, paymentRepository, notificationService, null);
+    }
+
+    public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
+                          UserRepository userRepository, UserDocumentRepository documentRepository,
+                          PaymentRepository paymentRepository) {
+        this(bookingRepository, vehicleRepository, userRepository, documentRepository, paymentRepository, null, null);
     }
 
     public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
                           UserRepository userRepository) {
-        this(bookingRepository, vehicleRepository, userRepository, null, null);
+        this(bookingRepository, vehicleRepository, userRepository, null, null, null, null);
     }
 
     @Transactional
@@ -70,8 +90,8 @@ public class BookingService {
         }
         Vehicle vehicle = vehicleRepository.findById(request.vehicleId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Vehicle not found"));
-        if (!vehicle.isAvailable()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Vehicle is not available");
+        if (!vehicle.isAvailable() || vehicle.getApprovalStatus() != VehicleApprovalStatus.APPROVED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Vehicle is not available or has not been approved");
         }
         if (bookingRepository.existsOverlappingBooking(vehicle.getId(), request.startTime(),
                 request.endTime(), RESERVING_STATUSES)) {
@@ -104,7 +124,36 @@ public class BookingService {
             booking.setRenterNotes(request.renterNotes().trim());
         }
 
-        return BookingResponse.from(bookingRepository.save(booking));
+        Booking savedBooking = bookingRepository.save(booking);
+        if (notificationService != null) {
+            notificationService.sendBookingNotification(savedBooking);
+        }
+        if (appNotificationService != null) {
+            String vehicleTitle = (vehicle.getModel() != null ? vehicle.getModel() : "Vehicle")
+                    + (vehicle.getRegistrationNumber() != null && !vehicle.getRegistrationNumber().isBlank()
+                    ? " (" + vehicle.getRegistrationNumber() + ")" : "");
+            if (vehicle.getOwner() != null) {
+                String renterName = renter.getFirstName() != null && !renter.getFirstName().isBlank()
+                        ? renter.getFirstName() : "A customer";
+                appNotificationService.createNotification(
+                        vehicle.getOwner(),
+                        "New Booking for " + vehicleTitle,
+                        "A new booking has been placed by " + renterName + " for " + vehicleTitle + ".",
+                        "BOOKING_CREATED",
+                        savedBooking.getId(),
+                        "BOOKING"
+                );
+            }
+            appNotificationService.createNotification(
+                    renter,
+                    "Booking Created for " + vehicleTitle,
+                    "Your booking for " + vehicleTitle + " has been placed successfully.",
+                    "BOOKING_CREATED",
+                    savedBooking.getId(),
+                    "BOOKING"
+            );
+        }
+        return BookingResponse.from(savedBooking);
     }
 
     private void requireDocuments(User renter, BookingMode mode) {
@@ -269,7 +318,22 @@ public class BookingService {
         }
         booking.setStatus(next);
         booking.setDispatcherNotes(request.notes());
-        return BookingResponse.from(bookingRepository.save(booking));
+        Booking savedBooking = bookingRepository.save(booking);
+        if (appNotificationService != null) {
+            Vehicle veh = savedBooking.getVehicle();
+            String vehicleTitle = veh != null && veh.getModel() != null ? veh.getModel() : "Vehicle";
+            if (savedBooking.getUser() != null) {
+                appNotificationService.createNotification(
+                        savedBooking.getUser(),
+                        "Booking " + next.name() + " for " + vehicleTitle,
+                        "Your booking for " + vehicleTitle + " is now " + next.name().toLowerCase() + ".",
+                        "BOOKING_STATUS_CHANGED",
+                        savedBooking.getId(),
+                        "BOOKING"
+                );
+            }
+        }
+        return BookingResponse.from(savedBooking);
     }
 
     private boolean validTransition(BookingStatus from, BookingStatus to) {

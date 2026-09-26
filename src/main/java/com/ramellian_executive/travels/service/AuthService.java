@@ -1,10 +1,12 @@
 package com.ramellian_executive.travels.service;
 
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.ramellian_executive.travels.entity.User;
 import com.ramellian_executive.travels.entity.UserRole;
 import com.ramellian_executive.travels.model.*;
 import com.ramellian_executive.travels.repository.UserRepository;
 import com.ramellian_executive.travels.repository.UserRoleRepository;
+import com.ramellian_executive.travels.security.GoogleIdTokenVerifierService;
 import com.ramellian_executive.travels.security.JwtService;
 import com.ramellian_executive.travels.security.VerificationCodeService;
 import com.ramellian_executive.travels.security.VerificationNotificationService;
@@ -44,6 +46,11 @@ public class AuthService {
 
     private final VerificationNotificationService notificationService;
 
+    private final GoogleIdTokenVerifierService googleIdTokenVerifier;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AuditLogService auditLogService;
+
     @org.springframework.beans.factory.annotation.Value("${app.verification.code-expiration-minutes}")
     private long codeExpirationMinutes;
 
@@ -60,30 +67,57 @@ public class AuthService {
         user.setPassword(passwordEncoder.encode(request.password()));
         user.setFirstName(request.firstName().trim());
         user.setLastName(request.lastName().trim());
+        if (request.phoneNumber() != null && !request.phoneNumber().isBlank()) {
+            user.setPhoneNumber(request.phoneNumber().trim());
+        }
         user.setEnabled(true);
         user.setEmailVerified(false);
-        UserRole renterRole = userRoleRepository.findByRoleName(UserRole.RENTER)
+
+        String requestedRole = request.role() != null && !request.role().isBlank()
+                ? request.role().trim().toUpperCase()
+                : UserRole.CAR_RENTER;
+        String targetRole = UserRole.CAR_OWNER.equals(requestedRole) ? UserRole.CAR_OWNER : UserRole.CAR_RENTER;
+        if (UserRole.CAR_OWNER.equals(targetRole)) {
+            user.setCarOwner(true);
+            user.setCarRenter(false);
+        } else {
+            user.setCarRenter(true);
+            user.setCarOwner(false);
+        }
+
+        UserRole role = userRoleRepository.findByRoleName(targetRole)
                 .orElseGet(() -> {
-                    UserRole role = new UserRole();
-                    role.setRoleName(UserRole.RENTER);
-                    role.setDescription("User who rents vehicles");
-                    return userRoleRepository.save(role);
+                    UserRole r = new UserRole();
+                    r.setRoleName(targetRole);
+                    r.setDescription(UserRole.CAR_OWNER.equals(targetRole) ? "User who owns vehicles" : "User who rents vehicles");
+                    return userRoleRepository.save(r);
                 });
-        user.getRoles().add(renterRole);
+        user.getRoles().add(role);
+
         String code = verificationCodeService.generateCode();
         user.setVerificationCodeHash(verificationCodeService.hash(code));
         user.setVerificationCodeExpiresAt(ZonedDateTime.now().plusMinutes(codeExpirationMinutes));
         userRepository.save(user);
-        notificationService.sendEmail(email, code, "email verification");
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(new AuthResponse(null, "Email verification required", 0));
 
+        if (auditLogService != null) {
+            auditLogService.logAction(email, "AUTH_REGISTER", "USER", user.getId() != null ? user.getId().toString() : null, "User registered with role " + targetRole, "SUCCESS");
+        }
 
+        boolean useWhatsApp = "WHATSAPP".equalsIgnoreCase(request.verificationChannel());
+        if (useWhatsApp && user.getPhoneNumber() != null && !user.getPhoneNumber().isBlank()) {
+            notificationService.sendWhatsApp(user.getPhoneNumber(), code);
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(new AuthResponse(null, "WhatsApp verification code sent", 0));
+        } else {
+            notificationService.sendEmail(email, code, "email verification");
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(new AuthResponse(null, "Email verification required", 0));
+        }
     }
 
     @Transactional
     public void verifyEmail(VerifyCodeRequest request){
-        User user = findUser(request.email());
+        User user = findUserByEmailOrPhone(request.email(), request.phoneNumber());
         if (user.isEmailVerified()
                 || user.getVerificationCodeExpiresAt() == null
                 || user.getVerificationCodeExpiresAt().isBefore(ZonedDateTime.now())
@@ -94,20 +128,52 @@ public class AuthService {
         user.setVerificationCodeHash(null);
         user.setVerificationCodeExpiresAt(null);
         userRepository.save(user);
+
+        if (auditLogService != null) {
+            auditLogService.logAction(user.getEmailAddress(), "AUTH_VERIFY_EMAIL", "USER", user.getId() != null ? user.getId().toString() : null, "Email verified successfully", "SUCCESS");
+        }
     }
 
 
     @Transactional
-    public void resendVerification( ResendVerificationRequest request) {
+    public void resendVerification(ResendVerificationRequest request) {
         User user = findUser(request.email());
         if (user.isEmailVerified()) {
             return;
+        }
+        if (request.phoneNumber() != null && !request.phoneNumber().isBlank()) {
+            user.setPhoneNumber(request.phoneNumber().trim());
         }
         String code = verificationCodeService.generateCode();
         user.setVerificationCodeHash(verificationCodeService.hash(code));
         user.setVerificationCodeExpiresAt(ZonedDateTime.now().plusMinutes(codeExpirationMinutes));
         userRepository.save(user);
-        notificationService.sendEmail(user.getEmailAddress(), code, "email verification");
+
+        if ("WHATSAPP".equalsIgnoreCase(request.channel())) {
+            if (user.getPhoneNumber() == null || user.getPhoneNumber().isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Phone number is required for WhatsApp verification");
+            }
+            notificationService.sendWhatsApp(user.getPhoneNumber(), code);
+        } else {
+            notificationService.sendEmail(user.getEmailAddress(), code, "email verification");
+        }
+    }
+
+    @Transactional
+    public void sendWhatsAppVerification(WhatsAppVerificationRequest request) {
+        User user = findUserByEmailOrPhone(request.email(), request.phoneNumber());
+        String phone = request.phoneNumber() != null && !request.phoneNumber().isBlank()
+                ? request.phoneNumber().trim()
+                : user.getPhoneNumber();
+        if (phone == null || phone.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Phone number is required for WhatsApp verification");
+        }
+        user.setPhoneNumber(phone);
+        String code = verificationCodeService.generateCode();
+        user.setVerificationCodeHash(verificationCodeService.hash(code));
+        user.setVerificationCodeExpiresAt(ZonedDateTime.now().plusMinutes(codeExpirationMinutes));
+        userRepository.save(user);
+        notificationService.sendWhatsApp(phone, code);
     }
 
 
@@ -129,7 +195,13 @@ public class AuthService {
             user.setTwoFactorCodeExpiresAt(ZonedDateTime.now().plusMinutes(codeExpirationMinutes));
             userRepository.save(user);
             deliverTwoFactorCode(user, code);
+            if (auditLogService != null) {
+                auditLogService.logAction(email, "AUTH_2FA_CHALLENGE", "USER", user.getId() != null ? user.getId().toString() : null, "2FA challenge code generated", "SUCCESS");
+            }
             return new AuthResponse(null, "Two-factor verification required", 0);
+        }
+        if (auditLogService != null) {
+            auditLogService.logAction(email, "AUTH_LOGIN", "USER", user.getId() != null ? user.getId().toString() : null, "User logged in successfully", "SUCCESS");
         }
         return tokenResponse(userDetailsService.loadUserByUsername(email));
     }
@@ -146,12 +218,96 @@ public class AuthService {
         user.setTwoFactorCodeHash(null);
         user.setTwoFactorCodeExpiresAt(null);
         userRepository.save(user);
+
+        if (auditLogService != null) {
+            auditLogService.logAction(user.getEmailAddress(), "AUTH_2FA_VERIFY", "USER", user.getId() != null ? user.getId().toString() : null, "Two-factor verification successful", "SUCCESS");
+        }
+
         return tokenResponse(userDetailsService.loadUserByUsername(user.getEmailAddress()));
+    }
+
+    @Transactional
+    public AuthResponse googleSignIn(GoogleAuthRequest request) {
+        GoogleIdToken.Payload payload = googleIdTokenVerifier.verify(request.idToken());
+
+        String email = payload.getEmail().trim().toLowerCase();
+        String googleId = payload.getSubject();
+        String firstName = (String) payload.get("given_name");
+        String lastName = (String) payload.get("family_name");
+        String pictureUrl = (String) payload.get("picture");
+
+        User user = userRepository.findByEmailAddressIgnoreCase(email)
+                .or(() -> userRepository.findByGoogleId(googleId))
+                .orElseGet(() -> {
+                    User newUser = new User();
+                    newUser.setEmailAddress(email);
+                    newUser.setGoogleId(googleId);
+                    newUser.setAuthProvider("GOOGLE");
+                    newUser.setFirstName(firstName != null ? firstName : "");
+                    newUser.setLastName(lastName != null ? lastName : "");
+                    newUser.setProfilePhotoUrl(pictureUrl);
+                    newUser.setEnabled(true);
+                    newUser.setEmailVerified(true);
+
+                    String requestedRole = request.role() != null && !request.role().isBlank()
+                            ? request.role().trim().toUpperCase()
+                            : UserRole.CAR_RENTER;
+                    String targetRole = UserRole.CAR_OWNER.equals(requestedRole) ? UserRole.CAR_OWNER : UserRole.CAR_RENTER;
+                    if (UserRole.CAR_OWNER.equals(targetRole)) {
+                        newUser.setCarOwner(true);
+                        newUser.setCarRenter(false);
+                    } else {
+                        newUser.setCarRenter(true);
+                        newUser.setCarOwner(false);
+                    }
+
+                    UserRole role = userRoleRepository.findByRoleName(targetRole)
+                            .orElseGet(() -> {
+                                UserRole r = new UserRole();
+                                r.setRoleName(targetRole);
+                                r.setDescription(UserRole.CAR_OWNER.equals(targetRole) ? "User who owns vehicles" : "User who rents vehicles");
+                                return userRoleRepository.save(r);
+                            });
+                    newUser.getRoles().add(role);
+                    return userRepository.save(newUser);
+                });
+
+        if (user.getGoogleId() == null) {
+            user.setGoogleId(googleId);
+            if (pictureUrl != null && user.getProfilePhotoUrl() == null) {
+                user.setProfilePhotoUrl(pictureUrl);
+            }
+            userRepository.save(user);
+        }
+
+        if (!user.isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is disabled");
+        }
+
+        if (auditLogService != null) {
+            auditLogService.logAction(email, "AUTH_GOOGLE_SIGN_IN", "USER",
+                    user.getId() != null ? user.getId().toString() : null,
+                    "Google sign-in successful", "SUCCESS");
+        }
+
+        return tokenResponse(userDetailsService.loadUserByUsername(email));
     }
 
     private User findUser(String email) {
         return userRepository.findByEmailAddressIgnoreCase(email.trim().toLowerCase())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+    }
+
+    private User findUserByEmailOrPhone(String email, String phoneNumber) {
+        if (email != null && !email.isBlank()) {
+            return userRepository.findByEmailAddressIgnoreCase(email.trim().toLowerCase())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        }
+        if (phoneNumber != null && !phoneNumber.isBlank()) {
+            return userRepository.findByPhoneNumber(phoneNumber.trim())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        }
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email address or phone number is required");
     }
 
     private void deliverTwoFactorCode(User user, String code) {

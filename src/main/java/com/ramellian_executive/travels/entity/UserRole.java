@@ -11,18 +11,14 @@ import java.util.Set;
 @Setter
 @Entity
 @Table(name = "user_role")
-public class UserRole {
+public class UserRole extends AbstractEntity{
 
     public static final String CHAUFFEUR = "CHAUFFEUR";
     public static final String ADMIN = "ADMIN";
     public static final String SUPER_ADMIN = "SUPER_ADMIN";
-    public static final String OWNER = "OWNER";
-    public static final String RENTER = "RENTER";
+    public static final String CAR_OWNER = "CAR_OWNER";
+    public static final String CAR_RENTER = "CAR_RENTER";
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "id", updatable = false)
-    private Long id;
 
     @Column(name = "role_name", nullable = false, unique = true)
     private String roleName;

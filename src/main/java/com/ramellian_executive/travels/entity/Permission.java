@@ -13,7 +13,7 @@ import lombok.Setter;
 @Setter
 @Entity
 @Table(name = "permission")
-public class Permission {
+public class Permission extends AbstractEntity{
 
     public static final String PROFILE_READ = "PROFILE_READ";
     public static final String BOOKING_CREATE = "BOOKING_CREATE";
@@ -30,18 +30,28 @@ public class Permission {
     public static final String VEHICLE_UPDATE = "VEHICLE_UPDATE";
     public static final String VEHICLE_MANAGE = "VEHICLE_MANAGE";
     public static final String VEHICLE_DELETE = "VEHICLE_DELETE";
+    public static final String VEHICLE_REVIEW = "VEHICLE_REVIEW";
+    public static final String VEHICLE_APPROVE = "VEHICLE_APPROVE";
     public static final String REVIEW_CREATE = "REVIEW_CREATE";
     public static final String REVIEW_READ = "REVIEW_READ";
     public static final String USER_MANAGE = "USER_MANAGE";
     public static final String USER_DELETE = "USER_DELETE";
+    public static final String ROLE_READ = "ROLE_READ";
     public static final String ROLE_MANAGE = "ROLE_MANAGE";
+    public static final String ROLE_CREATE = "ROLE_CREATE";
+    public static final String ROLE_UPDATE = "ROLE_UPDATE";
+    public static final String ROLE_DELETE = "ROLE_DELETE";
+    public static final String PERMISSION_READ = "PERMISSION_READ";
+    public static final String PERMISSION_MANAGE = "PERMISSION_MANAGE";
+    public static final String ANNOUNCEMENT_CREATE = "ANNOUNCEMENT_CREATE";
+    public static final String ANNOUNCEMENT_READ = "ANNOUNCEMENT_READ";
+    public static final String ANNOUNCEMENT_MANAGE = "ANNOUNCEMENT_MANAGE";
+    public static final String ANNOUNCEMENT_DELETE = "ANNOUNCEMENT_DELETE";
     public static final String DOCUMENT_UPLOAD = "DOCUMENT_UPLOAD";
     public static final String DOCUMENT_READ = "DOCUMENT_READ";
     public static final String DOCUMENT_REVIEW = "DOCUMENT_REVIEW";
+    public static final String AUDIT_READ = "AUDIT_READ";
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
 
     @Column(name = "permission_name", nullable = false, unique = true)
     private String permissionName;

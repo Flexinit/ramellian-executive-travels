@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
+import java.time.ZonedDateTime;
 import java.util.Set;
 
 public record VehicleRequest(
@@ -20,12 +21,15 @@ public record VehicleRequest(
         @NotBlank String transmissionType,
         boolean selfDrive,
         boolean chauffeured,
-        Set<TripType> tripTypes) {
-
-    public VehicleRequest(String model, String vin, String registrationNumber, String location,
-                          Double pricePerDay, int capacity, String color, String fuelType,
-                          String transmissionType, boolean selfDrive, boolean chauffeured) {
-        this(model, vin, registrationNumber, location, pricePerDay, capacity, color, fuelType,
-                transmissionType, selfDrive, chauffeured, null);
+        Set<TripType> tripTypes,
+        boolean available,
+        ZonedDateTime availableFrom,
+        ZonedDateTime availableTo,
+        boolean hasWorkingAC,
+        boolean comprehensiveInsurance,
+        String insuranceVerificationStickerPhoto
+) {
+    public VehicleRequest {
+        tripTypes = (tripTypes == null) ? Set.of() : Set.copyOf(tripTypes);
     }
 }

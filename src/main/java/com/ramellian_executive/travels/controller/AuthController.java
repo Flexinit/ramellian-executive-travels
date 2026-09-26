@@ -49,11 +49,26 @@ public class AuthController {
         authService.verifyEmail(request);
     }
 
+    @PostMapping("/verify-code")
+    public void verifyCode(@Valid @RequestBody VerifyCodeRequest request) {
+        authService.verifyEmail(request);
+    }
+
+    @PostMapping("/verify-whatsapp")
+    public void verifyWhatsApp(@Valid @RequestBody VerifyCodeRequest request) {
+        authService.verifyEmail(request);
+    }
+
+    @PostMapping("/send-whatsapp-code")
+    @Transactional
+    public void sendWhatsAppCode(@RequestBody WhatsAppVerificationRequest request) {
+        authService.sendWhatsAppVerification(request);
+    }
+
     @PostMapping("/resend-verification")
     @Transactional
     public void resendVerification(@Valid @RequestBody ResendVerificationRequest request) {
         authService.resendVerification(request);
-
     }
 
 
@@ -67,7 +82,11 @@ public class AuthController {
     @Transactional
     public AuthResponse verifyTwoFactor(@Valid @RequestBody VerifyCodeRequest request) {
        return  authService.verifyTwoFactor(request);
+    }
 
+    @PostMapping("/google")
+    public AuthResponse googleSignIn(@Valid @RequestBody GoogleAuthRequest request) {
+        return authService.googleSignIn(request);
     }
 
 

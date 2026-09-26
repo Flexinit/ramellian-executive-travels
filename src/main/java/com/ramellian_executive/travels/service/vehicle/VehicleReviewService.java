@@ -18,6 +18,7 @@ import java.util.List;
 public class VehicleReviewService {
     private final ReviewRepository reviewRepository;
     private final VehicleRepository vehicleRepository;
+    private final UserRepository userRepository;
 
     @Transactional
     public ReviewResponse create(Booking booking, ReviewRequest request, Authentication authentication) {
@@ -45,6 +46,16 @@ public class VehicleReviewService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Vehicle not found");
         }
         return reviewRepository.findAllByVehicleId(vehicleId).stream()
+                .map(ReviewResponse::from)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReviewResponse> findByOwner(UUID ownerId) {
+        if (!userRepository.existsById(ownerId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Owner not found");
+        }
+        return reviewRepository.findAllByVehicleOwnerId(ownerId).stream()
                 .map(ReviewResponse::from)
                 .toList();
     }

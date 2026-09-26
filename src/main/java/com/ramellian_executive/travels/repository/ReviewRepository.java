@@ -14,6 +14,8 @@ public interface ReviewRepository extends JpaRepository<Review, UUID> {
     boolean existsByBooking(Booking booking);
     @Query("select r from Review r join fetch r.booking b join fetch b.vehicle v join fetch b.user u where v.id = :vehicleId")
     List<Review> findAllByVehicleId(@Param("vehicleId") UUID vehicleId);
+    @Query("select r from Review r join fetch r.booking b join fetch b.vehicle v join fetch b.user u where v.owner.id = :ownerId")
+    List<Review> findAllByVehicleOwnerId(@Param("ownerId") UUID ownerId);
     @Query("select avg(r.rating) from Review r where r.booking.vehicle.id = :vehicleId")
     Double averageRatingByVehicle(@Param("vehicleId") UUID vehicleId);
 }
