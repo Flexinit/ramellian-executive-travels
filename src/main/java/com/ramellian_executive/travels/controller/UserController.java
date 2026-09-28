@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.security.core.Authentication;
@@ -79,8 +80,14 @@ public class UserController {
     @DeleteMapping("/admin/{id}")
     @PreAuthorize("hasAuthority('USER_DELETE')")
     public void deleteUser(@PathVariable UUID id, Authentication authentication) {
-     userService.deleteUser(id,  authentication);
+        userService.deleteUser(id, authentication);
+    }
 
+    @PostMapping("/admin/renters")
+    @PreAuthorize("hasAuthority('BOOKING_MANAGE') or hasRole('ADMIN') or hasRole('SUPER_ADMIN')")
+    public StaffRenterResponse createRenter(@Valid @RequestBody StaffRenterRequest request,
+                                            Authentication authentication) {
+        return userService.createRenter(request, authentication);
     }
 
 

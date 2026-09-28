@@ -12,8 +12,9 @@ public record BookingRequest(@NotNull UUID vehicleId,
                              @NotNull @Future ZonedDateTime endTime,
                              @NotNull String bookingMode,
                              TripType tripType,
-                             @Size(max = 1000) String renterNotes) {
+                             @Size(max = 1000) String renterNotes,
+                             UUID renterId) {
     public BookingRequest(UUID vehicleId, ZonedDateTime startTime, ZonedDateTime endTime) {
-        this(vehicleId, startTime, endTime, "SELF_DRIVE", null, null);
+        this(vehicleId, startTime, endTime, "SELF_DRIVE", null, null, null);
     }
 }

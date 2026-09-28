@@ -96,6 +96,80 @@ public class DocumentService {
             );
         }
 
+        if (appNotificationService != null) {
+            appNotificationService.createNotification(
+                    user,
+                    "Document Submitted for Review",
+                    "Your " + documentType.name().replace("_", " ") + " has been submitted and is pending review.",
+                    "DOCUMENT_SUBMITTED",
+                    saved.getId(),
+                    "DOCUMENT"
+            );
+            String submitterName = buildName(user);
+            String docLabel = documentType.name().replace("_", " ");
+            notifyReviewers(
+                    "New Document for Review",
+                    submitterName + " submitted a " + docLabel + " for review.",
+                    saved.getId()
+            );
+        }
+
+        return DocumentResponse.from(saved);
+    }
+
+    @Transactional
+    public DocumentResponse uploadForUser(UUID userId, String type, MultipartFile file,
+                                          Authentication authentication) {
+        User targetUser = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        DocumentType documentType;
+        try {
+            documentType = DocumentType.valueOf(normalize(type));
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid document type");
+        }
+        if (documentType == DocumentType.INSURANCE_STICKER || documentType == DocumentType.VEHICLE_REGISTRATION) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Use vehicle-specific upload for vehicle documents");
+        }
+        if (file.isEmpty() || file.getContentType() == null
+                || (!file.getContentType().startsWith("image/") && !file.getContentType().equals("application/pdf"))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only image or PDF documents are accepted");
+        }
+        String fileName = UUID.randomUUID() + extension(file.getOriginalFilename());
+        try {
+            Files.createDirectories(directory);
+            Files.copy(file.getInputStream(), directory.resolve(fileName));
+        } catch (IOException ex) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Document could not be stored", ex);
+        }
+        UserDocument document = new UserDocument();
+        document.setUser(targetUser);
+        document.setDocumentType(documentType);
+        document.setFileName(fileName);
+        document.setOriginalFileName(file.getOriginalFilename());
+        document.setContentType(file.getContentType());
+        document.setFileSize(file.getSize());
+        document.setReviewStatus(DocumentReviewStatus.APPROVED);
+        UserDocument saved = documentRepository.save(document);
+
+        if (auditLogService != null) {
+            auditLogService.logAction(authentication, "STAFF_DOCUMENT_UPLOAD", "DOCUMENT",
+                    saved.getId() != null ? saved.getId().toString() : null,
+                    "Staff uploaded " + documentType + " for user " + targetUser.getEmailAddress(), "SUCCESS");
+        }
+
+        if (appNotificationService != null) {
+            appNotificationService.createNotification(
+                    targetUser,
+                    "Document Added to Your Profile",
+                    "A " + documentType.name().replace("_", " ") + " has been added to your profile and approved.",
+                    "DOCUMENT_APPROVED",
+                    saved.getId(),
+                    "DOCUMENT"
+            );
+        }
+
         return DocumentResponse.from(saved);
     }
 
@@ -224,6 +298,24 @@ public class DocumentService {
     private User findUser(String email) {
         return userRepository.findByEmailAddressIgnoreCase(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+    }
+
+    private void notifyReviewers(String title, String message, UUID documentId) {
+        if (appNotificationService == null) return;
+        java.util.stream.Stream.of(
+                com.ramellian_executive.travels.entity.UserRole.ADMIN,
+                com.ramellian_executive.travels.entity.UserRole.SUPER_ADMIN)
+                .flatMap(role -> userRepository.findByRoles_RoleName(role).stream())
+                .distinct()
+                .forEach(admin -> appNotificationService.createNotification(
+                        admin, title, message, "DOCUMENT_SUBMITTED", documentId, "DOCUMENT"));
+    }
+
+    private String buildName(User user) {
+        String first = user.getFirstName() != null ? user.getFirstName() : "";
+        String last = user.getLastName() != null ? user.getLastName() : "";
+        String full = (first + " " + last).trim();
+        return full.isEmpty() ? user.getEmailAddress() : full;
     }
 
     private String normalize(String value) {

@@ -5,6 +5,7 @@ import com.ramellian_executive.travels.service.BookingService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -64,5 +65,24 @@ public class BookingController {
                                            @Valid @RequestBody ChauffeurAssignmentRequest request,
                                            Authentication authentication) {
         return bookingService.assignChauffeur(id, request.chauffeurId(), authentication);
+    }
+
+    @PostMapping("/create-batch")
+    public ResponseEntity<BookingGroupResponse> createBatch(
+            @RequestBody @Valid BatchBookingRequest request,
+            Authentication authentication) {
+        return ResponseEntity.status(201).body(bookingService.createBatch(request, authentication));
+    }
+
+    @PostMapping("/quote")
+    public ResponseEntity<BookingQuoteResponse> quote(@RequestBody @Valid BookingQuoteRequest request) {
+        return ResponseEntity.ok(bookingService.quote(request));
+    }
+
+    @PutMapping("/{id}/return")
+    public ResponseEntity<BookingResponse> recordReturn(@PathVariable UUID id,
+                                                        @Valid @RequestBody BookingReturnRequest request,
+                                                        Authentication authentication) {
+        return ResponseEntity.ok(bookingService.recordReturn(id, request, authentication));
     }
 }

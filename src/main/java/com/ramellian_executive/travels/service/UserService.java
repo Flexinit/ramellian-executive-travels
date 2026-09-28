@@ -264,6 +264,51 @@ public class UserService {
         }
     }
 
+    @Transactional
+    public StaffRenterResponse createRenter(StaffRenterRequest request, Authentication authentication) {
+        String email = request.email().trim().toLowerCase();
+        if (userRepository.existsByEmailAddressIgnoreCase(email)) {
+            User existing = userRepository.findByEmailAddressIgnoreCase(email).get();
+            return new StaffRenterResponse(
+                    existing.getId(), existing.getEmailAddress(),
+                    existing.getFirstName(), existing.getLastName(),
+                    null, true);
+        }
+
+        String tempPassword = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        User user = new User();
+        user.setEmailAddress(email);
+        user.setFirstName(request.firstName().trim());
+        user.setLastName(request.lastName().trim());
+        if (request.phoneNumber() != null && !request.phoneNumber().isBlank()) {
+            user.setPhoneNumber(request.phoneNumber().trim());
+        }
+        user.setPassword(passwordEncoder.encode(tempPassword));
+        user.setEnabled(true);
+        user.setEmailVerified(true);
+        user.setCarRenter(true);
+
+        UserRole role = userRoleRepository.findByRoleName(UserRole.CAR_RENTER)
+                .orElseGet(() -> {
+                    UserRole r = new UserRole();
+                    r.setRoleName(UserRole.CAR_RENTER);
+                    r.setDescription("User who rents vehicles");
+                    return userRoleRepository.save(r);
+                });
+        user.getRoles().add(role);
+        User saved = userRepository.save(user);
+
+        if (auditLogService != null) {
+            auditLogService.logAction(authentication, "STAFF_RENTER_CREATE", "USER",
+                    saved.getId().toString(),
+                    "Staff created renter account for " + email, "SUCCESS");
+        }
+        return new StaffRenterResponse(
+                saved.getId(), saved.getEmailAddress(),
+                saved.getFirstName(), saved.getLastName(),
+                tempPassword, false);
+    }
+
     private User findUser(UUID id) {
         return userRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));

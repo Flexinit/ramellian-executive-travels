@@ -5,6 +5,7 @@ import com.ramellian_executive.travels.model.PaymentStatusResponse;
 import com.ramellian_executive.travels.service.PesapalPaymentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -33,5 +34,19 @@ public class PesapalPaymentController {
                                    @RequestParam String OrderMerchantReference) {
         service.processCallback(OrderTrackingId, OrderMerchantReference);
         return Map.of("status", "received");
+    }
+
+    @PostMapping("/booking-groups/{groupId}/checkout")
+    public ResponseEntity<PaymentCheckoutResponse> checkoutGroup(
+            @PathVariable UUID groupId,
+            Authentication authentication) {
+        return ResponseEntity.ok(service.checkoutGroup(groupId, authentication));
+    }
+
+    @PostMapping("/bookings/{bookingId}/overstay-checkout")
+    public ResponseEntity<PaymentCheckoutResponse> checkoutOverstay(
+            @PathVariable UUID bookingId,
+            Authentication authentication) {
+        return ResponseEntity.ok(service.checkoutOverstay(bookingId, authentication));
     }
 }

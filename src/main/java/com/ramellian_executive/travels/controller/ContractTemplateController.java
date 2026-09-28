@@ -5,6 +5,7 @@ import com.ramellian_executive.travels.service.ContractTemplateService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -41,5 +42,10 @@ public class ContractTemplateController {
     public ContractTemplateResponse review(@PathVariable UUID id,
                                            @Valid @RequestBody ContractTemplateReviewRequest request) {
         return service.review(id, request);
+    }
+
+    @GetMapping("/owners/{ownerId}/active")
+    public ResponseEntity<ContractTemplateResponse> getOwnerActiveTemplate(@PathVariable UUID ownerId) {
+        return ResponseEntity.ok(service.getOwnerActiveTemplate(ownerId));
     }
 }

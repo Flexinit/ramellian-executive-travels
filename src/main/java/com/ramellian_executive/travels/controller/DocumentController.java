@@ -38,6 +38,16 @@ public class DocumentController {
         return documentService.pendingDocuments();
     }
 
+    @PostMapping("/admin/users/{userId}")
+    @org.springframework.security.access.prepost.PreAuthorize(
+            "hasAuthority('DOCUMENT_REVIEW') or hasAuthority('BOOKING_MANAGE') or hasRole('ADMIN')")
+    public DocumentResponse uploadForUser(@PathVariable UUID userId,
+                                          @RequestParam String documentType,
+                                          @RequestParam MultipartFile file,
+                                          Authentication authentication) {
+        return documentService.uploadForUser(userId, documentType, file, authentication);
+    }
+
     @PutMapping("/admin/{id}/review")
     public DocumentResponse review(@PathVariable UUID id,
                                    @Valid @RequestBody DocumentReviewRequest request,

@@ -3,6 +3,7 @@ package com.ramellian_executive.travels.service;
 import com.ramellian_executive.travels.entity.*;
 import com.ramellian_executive.travels.model.*;
 import com.ramellian_executive.travels.repository.BookingRepository;
+import com.ramellian_executive.travels.repository.BookingGroupRepository;
 import com.ramellian_executive.travels.repository.UserRepository;
 import com.ramellian_executive.travels.repository.vehicle.VehicleRepository;
 import com.ramellian_executive.travels.repository.UserDocumentRepository;
@@ -16,7 +17,10 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.beans.factory.annotation.Value;
 
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -26,6 +30,7 @@ public class BookingService {
     private static final List<BookingStatus> RESERVING_STATUSES =
             List.of(BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ACTIVE);
     private final BookingRepository bookingRepository;
+    private final BookingGroupRepository bookingGroupRepository;
     private final VehicleRepository vehicleRepository;
     private final UserRepository userRepository;
     private final UserDocumentRepository documentRepository;
@@ -37,16 +42,18 @@ public class BookingService {
 
     public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
                           UserRepository userRepository, UserDocumentRepository documentRepository) {
-        this(bookingRepository, vehicleRepository, userRepository, documentRepository, null, null, null);
+        this(bookingRepository, null, vehicleRepository, userRepository, documentRepository, null, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
-    public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
+    public BookingService(BookingRepository bookingRepository, BookingGroupRepository bookingGroupRepository,
+                          VehicleRepository vehicleRepository,
                           UserRepository userRepository, UserDocumentRepository documentRepository,
                           PaymentRepository paymentRepository,
                           VerificationNotificationService notificationService,
                           NotificationService appNotificationService) {
         this.bookingRepository = bookingRepository;
+        this.bookingGroupRepository = bookingGroupRepository;
         this.vehicleRepository = vehicleRepository;
         this.userRepository = userRepository;
         this.documentRepository = documentRepository;
@@ -59,18 +66,18 @@ public class BookingService {
                           UserRepository userRepository, UserDocumentRepository documentRepository,
                           PaymentRepository paymentRepository,
                           VerificationNotificationService notificationService) {
-        this(bookingRepository, vehicleRepository, userRepository, documentRepository, paymentRepository, notificationService, null);
+        this(bookingRepository, null, vehicleRepository, userRepository, documentRepository, paymentRepository, notificationService, null);
     }
 
     public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
                           UserRepository userRepository, UserDocumentRepository documentRepository,
                           PaymentRepository paymentRepository) {
-        this(bookingRepository, vehicleRepository, userRepository, documentRepository, paymentRepository, null, null);
+        this(bookingRepository, null, vehicleRepository, userRepository, documentRepository, paymentRepository, null, null);
     }
 
     public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
                           UserRepository userRepository) {
-        this(bookingRepository, vehicleRepository, userRepository, null, null, null, null);
+        this(bookingRepository, null, vehicleRepository, userRepository, null, null, null, null);
     }
 
     @Transactional
@@ -84,7 +91,17 @@ public class BookingService {
         } catch (IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Booking mode must be SELF_DRIVE or CHAUFFEURED");
         }
-        User renter = findUser(authentication.getName());
+        User renter;
+        if (request.renterId() != null) {
+            if (!has(authentication, "BOOKING_MANAGE")) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Only staff with BOOKING_MANAGE permission can create a booking on behalf of another user");
+            }
+            renter = userRepository.findById(request.renterId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Renter not found"));
+        } else {
+            renter = findUser(authentication.getName());
+        }
         if (documentRepository != null) {
             requireDocuments(renter, mode);
         }
@@ -334,6 +351,85 @@ public class BookingService {
             }
         }
         return BookingResponse.from(savedBooking);
+    }
+
+    @Transactional
+    public BookingGroupResponse createBatch(BatchBookingRequest request, Authentication authentication) {
+        User renter = findUser(authentication.getName());
+        BookingGroup group = new BookingGroup();
+        group.setRenter(renter);
+        group.setStatus(BookingGroupStatus.PENDING);
+        BookingGroup savedGroup = bookingGroupRepository.save(group);
+
+        List<BookingResponse> responses = new ArrayList<>();
+        double total = 0.0;
+        for (BookingRequest bookingRequest : request.bookings()) {
+            BookingResponse resp = create(bookingRequest, authentication);
+            // set the group on the saved booking
+            Booking booking = bookingRepository.findById(resp.id())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Booking not found after creation"));
+            booking.setBookingGroup(savedGroup);
+            bookingRepository.save(booking);
+            responses.add(resp);
+            if (resp.estimatedAmount() != null) {
+                total += resp.estimatedAmount();
+            }
+        }
+        return new BookingGroupResponse(savedGroup.getId(), savedGroup.getStatus().name(),
+                responses, BigDecimal.valueOf(total));
+    }
+
+    @Transactional(readOnly = true)
+    public BookingQuoteResponse quote(BookingQuoteRequest request) {
+        Vehicle vehicle = vehicleRepository.findById(request.vehicleId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Vehicle not found"));
+        long totalHours = Duration.between(request.startTime(), request.endTime()).toHours();
+        long days = Math.max(1, (totalHours + 23) / 24);
+        BigDecimal amount = BigDecimal.valueOf(vehicle.getPricePerDay()).multiply(BigDecimal.valueOf(days));
+        return new BookingQuoteResponse(vehicle.getId(), days,
+                BigDecimal.valueOf(vehicle.getPricePerDay()), amount);
+    }
+
+    @Transactional
+    public BookingResponse recordReturn(UUID bookingId, BookingReturnRequest request, Authentication authentication) {
+        Booking booking = find(bookingId);
+        boolean isOwner = booking.getVehicle().getOwner().getEmailAddress()
+                .equalsIgnoreCase(authentication.getName());
+        boolean isAdmin = has(authentication, "BOOKING_MANAGE");
+        if (!isOwner && !isAdmin) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the vehicle owner or admin can record a return");
+        }
+        if (booking.getStatus() != BookingStatus.ACTIVE && booking.getStatus() != BookingStatus.COMPLETED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Booking must be ACTIVE or COMPLETED to record a return");
+        }
+        booking.setActualEndTime(request.actualEndTime());
+        if (booking.getStatus() == BookingStatus.ACTIVE) {
+            booking.setStatus(BookingStatus.COMPLETED);
+        }
+        if (request.actualEndTime().isAfter(booking.getEndTime()) && paymentRepository != null) {
+            long overstayHours = java.time.Duration.between(booking.getEndTime(), request.actualEndTime()).toHours();
+            long overstayDays = Math.max(1, (overstayHours + 23) / 24);
+            double overstayAmount = booking.getVehicle().getPricePerDay() * overstayDays;
+            boolean alreadyCharged = paymentRepository
+                    .findByBookingIdAndChargeType(bookingId,
+                            com.ramellian_executive.travels.entity.PaymentChargeType.OVERSTAY)
+                    .isPresent();
+            if (!alreadyCharged) {
+                Payment overstayPayment = new Payment();
+                overstayPayment.setBooking(booking);
+                overstayPayment.setChargeType(com.ramellian_executive.travels.entity.PaymentChargeType.OVERSTAY);
+                overstayPayment.setPaymentMethod("PESAPAL");
+                overstayPayment.setProvider("PESAPAL");
+                overstayPayment.setAmount(overstayAmount);
+                overstayPayment.setPlatformFee(overstayAmount * 0.01);
+                overstayPayment.setOwnerPayout(overstayAmount - overstayAmount * 0.01);
+                overstayPayment.setStatus(PaymentStatus.PENDING);
+                paymentRepository.save(overstayPayment);
+            }
+        }
+        return BookingResponse.from(bookingRepository.save(booking));
     }
 
     private boolean validTransition(BookingStatus from, BookingStatus to) {

@@ -51,6 +51,13 @@ public class Booking extends AbstractEntity {
     @Column(name = "renter_notes", length = 1000)
     private String renterNotes;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "booking_group_id")
+    private BookingGroup bookingGroup;
+
+    @Column(name = "actual_end_time")
+    private ZonedDateTime actualEndTime;
+
     public void setStatus(String status) {
         this.status = BookingStatus.valueOf(status.trim().toUpperCase());
     }

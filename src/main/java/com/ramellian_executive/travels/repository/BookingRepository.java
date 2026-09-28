@@ -41,4 +41,5 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     List<Booking> findByVehicleOwnerEmailAddressIgnoreCaseOrderByStartTimeDesc(String email);
     List<Booking> findAllByOrderByStartTimeDesc();
     List<Booking> findByStatusAndCreatedAtBefore(BookingStatus status, ZonedDateTime cutoff);
+    List<Booking> findByBookingGroupId(UUID bookingGroupId);
 }

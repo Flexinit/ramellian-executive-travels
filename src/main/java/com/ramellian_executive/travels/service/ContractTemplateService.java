@@ -77,6 +77,19 @@ public class ContractTemplateService {
     }
 
     @Transactional(readOnly = true)
+    public ContractTemplateResponse getOwnerActiveTemplate(UUID ownerId) {
+        userRepository.findById(ownerId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Owner not found"));
+        ContractTemplate template = repository.findFirstByOwnerIdAndStatusOrderByVersionDesc(
+                        ownerId, ContractTemplateStatus.APPROVED)
+                .or(() -> repository.findFirstByOwnerIsNullAndStatusOrderByVersionDesc(
+                        ContractTemplateStatus.APPROVED))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No approved contract template found for this owner or platform"));
+        return ContractTemplateResponse.from(template);
+    }
+
+    @Transactional(readOnly = true)
     public String resolveFor(Booking booking) {
         return repository.findFirstByOwnerIdAndStatusOrderByVersionDesc(
                         booking.getVehicle().getOwner().getId(), ContractTemplateStatus.APPROVED)

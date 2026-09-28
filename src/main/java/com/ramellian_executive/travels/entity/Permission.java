@@ -51,6 +51,7 @@ public class Permission extends AbstractEntity{
     public static final String DOCUMENT_READ = "DOCUMENT_READ";
     public static final String DOCUMENT_REVIEW = "DOCUMENT_REVIEW";
     public static final String AUDIT_READ = "AUDIT_READ";
+    public static final String RENTAL_TERM_MANAGE = "RENTAL_TERM_MANAGE";
 
 
     @Column(name = "permission_name", nullable = false, unique = true)

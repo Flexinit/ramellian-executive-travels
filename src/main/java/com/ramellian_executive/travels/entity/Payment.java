@@ -45,4 +45,8 @@ public class Payment extends AbstractEntity {
     @Column(name = "provider_receipt")
     private String providerReceipt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "charge_type", nullable = false)
+    private PaymentChargeType chargeType = PaymentChargeType.RENTAL;
+
 }

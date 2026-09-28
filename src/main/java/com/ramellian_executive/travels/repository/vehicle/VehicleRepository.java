@@ -45,16 +45,19 @@ public interface VehicleRepository extends JpaRepository<Vehicle, UUID> {
                                  ZonedDateTime endTime,
                                  List<BookingStatus> bookingStatuses) {
         boolean filterTripTypes = tripTypes != null && !tripTypes.isEmpty();
-        boolean filterTime = startTime != null && endTime != null;
+        // Always apply the booking overlap check. When no range is given, default to
+        // [now, now+1s] so vehicles with a live booking at this instant are excluded.
         ZonedDateTime now = ZonedDateTime.now();
+        ZonedDateTime effectiveStart = startTime != null ? startTime : now;
+        ZonedDateTime effectiveEnd   = endTime   != null ? endTime   : now.plusSeconds(1);
         return searchInternal(
                 query, location, minPrice, maxPrice, capacity,
                 fuelType, transmissionType, selfDrive, chauffeured, ownerId,
                 filterTripTypes,
                 filterTripTypes ? tripTypes : EnumSet.allOf(TripType.class),
-                filterTime,
-                filterTime ? startTime : now,
-                filterTime ? endTime : now,
+                true,
+                effectiveStart,
+                effectiveEnd,
                 (bookingStatuses == null || bookingStatuses.isEmpty())
                         ? List.of(BookingStatus.values())
                         : bookingStatuses);
