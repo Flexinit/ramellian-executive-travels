@@ -58,7 +58,7 @@ public class PaymentController {
                                  @RequestParam boolean consent,
                                  Authentication authentication,
                                  HttpServletRequest request) {
-        return paymentService.sign(contractId, signature, consent, authentication,
+        return paymentService.signAgreement(contractId, signature, consent, authentication,
                 request.getRemoteAddr(), request.getHeader("User-Agent"));
     }
 

@@ -160,8 +160,8 @@ public class PaymentService {
     }
 
     @Transactional
-    public ContractResponse sign(UUID contractId, MultipartFile signature, boolean consent,
-                                 Authentication authentication, String ipAddress, String userAgent) {
+    public ContractResponse signAgreement(UUID contractId, MultipartFile signature, boolean consent,
+                                          Authentication authentication, String ipAddress, String userAgent) {
         BookingContract contract = contractRepository.findById(contractId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Contract not found"));
         if (!contract.getBooking().getUser().getEmailAddress().equalsIgnoreCase(authentication.getName())) {
