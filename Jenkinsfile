@@ -5,6 +5,14 @@ pipeline {
         IMAGE_NAME = 'ramellian-executive-travels'
         VPS_USER   = 'root'
         VPS_HOST   = '102.68.87.231'
+        JAVA_HOME  = '/usr/lib/jvm/temurin-21-jdk-amd64'
+        PATH       = "${JAVA_HOME}/bin:${env.PATH}"
+    }
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
     }
 
     stages {
@@ -14,7 +22,8 @@ pipeline {
 
         stage('Build JAR') {
             steps {
-                sh './mvnw clean package -DskipTests'
+                sh 'chmod +x mvnw'
+                sh './mvnw -B clean package -DskipTests'
             }
         }
 
@@ -28,10 +37,10 @@ pipeline {
             steps {
                 sshagent(['vps-ssh-key']) {
                     sh '''
-                        docker save $IMAGE_NAME:latest | \
-                          ssh -o StrictHostKeyChecking=no \
+                        docker save $IMAGE_NAME:latest | gzip | \
+                          ssh -o StrictHostKeyChecking=accept-new \
                           $VPS_USER@$VPS_HOST \
-                          "docker load && systemctl restart ramellian.service"
+                          "gunzip | docker load && systemctl restart ramellian.service"
                     '''
                 }
             }
@@ -39,6 +48,8 @@ pipeline {
     }
 
     post {
+        success { echo 'Deployed successfully.' }
         failure { echo 'Build or deploy failed.' }
+        always  { sh 'docker image prune -f || true' }
     }
 }
