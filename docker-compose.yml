@@ -27,29 +27,83 @@ services:
     ports:
       - "8090:8090"
     environment:
+      # Database
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/ramellian-executive-travels
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: root
+
+      # JWT
       JWT_SECRET: change-this-to-a-random-string-of-at-least-32-characters
-      GOOGLE_CLIENT_ID: ""
+      JWT_EXPIRATION_MS: "3600000"
+
+      # Google OAuth
+      GOOGLE_CLIENT_ID: "353452894856-d9tudsttmmma590akjuetpap5na22vs9.apps.googleusercontent.com"
+
+      # Pesapal
+      PESAPAL_BASE_URL: https://cybqa.pesapal.com/pesapalv3
       PESAPAL_CONSUMER_KEY: your-pesapal-key
       PESAPAL_CONSUMER_SECRET: your-pesapal-secret
-      PESAPAL_CALLBACK_URL: https://your-domain/payment/success
-      CORS_ALLOWED_ORIGINS: https://your-domain
+      PESAPAL_CALLBACK_URL: https://ramellianexecutivetravels.co.ke/payment/success
+      PESAPAL_NOTIFICATION_ID: 3a5925c7-3e7f-456e-b74e-d9d7bf372b79
+      MANUAL_PAYMENT_CONFIRMATION_ENABLED: "false"
+
+      # CORS & URLs
+      CORS_ALLOWED_ORIGINS: https://ramellianexecutivetravels.co.ke
+      FRONTEND_URL: https://ramellianexecutivetravels.co.ke
+      SERVER_URL: https://ramellianexecutivetravels.co.ke
+
+      # Email
       SMTP_HOST: smtp.gmail.com
       SMTP_PORT: "587"
-      SMTP_USERNAME: ""
-      SMTP_PASSWORD: ""
+      SMTP_USERNAME: washioyafelix@gmail.com
+      SMTP_PASSWORD: hxjijjyfsbbwlige
+      EMAIL_CURRENCY: KES
+      VERIFICATION_CODE_EXPIRATION_MINUTES: "15"
+      VERIFICATION_FROM_EMAIL: washioyafelix@gmail.com
+
+      # Super Admin
+      SUPER_ADMIN_EMAIL: superadmin@ramellian.com
+      SUPER_ADMIN_PASSWORD: SuperAdmin@12345
+      SUPER_ADMIN_PHONE: "+254700000000"
+      SUPER_ADMIN_FIRST_NAME: Super
+      SUPER_ADMIN_LAST_NAME: Admin
+
+      # File uploads
       VEHICLE_PHOTO_DIRECTORY: uploads/vehicles
       DOCUMENT_DIRECTORY: uploads/documents
       CONTRACT_DIRECTORY: uploads/contracts
+      RECEIPT_DIRECTORY: uploads/receipts
+      HANDOVER_DIRECTORY: uploads/handovers
+
+      # Booking
+      PENDING_BOOKING_EXPIRATION_MS: "900000"
+
+      # Groq AI
+      GROQ_API_KEY: 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
+      GROQ_MODEL: llama-3.3-70b-versatile
+
+      # WhatsApp (Baileys bot)
+      BAILEYS_URL: http://localhost:3001
+      BOT_WHATSAPP_PHONE: "+254758372954"
+
+      # WhatsApp Cloud API (disabled by default)
+      WHATSAPP_ENABLED: "false"
+      WHATSAPP_BASE_URL: https://graph.facebook.com
+      WHATSAPP_PHONE_NUMBER_ID: ""
+      WHATSAPP_ACCESS_TOKEN: ""
+      WHATSAPP_TEMPLATE_NAME: ramellian_verification_code
+
     volumes:
       - uploads_vehicles:/app/uploads/vehicles
       - uploads_documents:/app/uploads/documents
       - uploads_contracts:/app/uploads/contracts
+      - uploads_receipts:/app/uploads/receipts
+      - uploads_handovers:/app/uploads/handovers
 
 volumes:
   postgres_data:
   uploads_vehicles:
   uploads_documents:
   uploads_contracts:
+  uploads_receipts:
+  uploads_handovers:
