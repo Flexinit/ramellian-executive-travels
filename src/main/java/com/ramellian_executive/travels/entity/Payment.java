@@ -27,6 +27,15 @@ public class Payment extends AbstractEntity {
     @Column(name = "platform_fee", nullable = false)
     private Double platformFee = 0.0;
 
+    @Column(name = "transaction_fee", nullable = false)
+    private Double transactionFee = 0.0;
+
+    @Column(name = "delivery_fee", nullable = false)
+    private Double deliveryFee = 0.0;
+
+    @Column(name = "driver_charge", nullable = false)
+    private Double driverCharge = 0.0;
+
     @Column(name = "owner_payout", nullable = false)
     private Double ownerPayout = 0.0;
 
@@ -44,6 +53,12 @@ public class Payment extends AbstractEntity {
 
     @Column(name = "provider_receipt")
     private String providerReceipt;
+
+    @Column(name = "receipt_file_name")
+    private String receiptFileName;
+
+    @Column(name = "admin_receipt_file_name")
+    private String adminReceiptFileName;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "charge_type", nullable = false)

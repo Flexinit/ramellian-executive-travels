@@ -28,8 +28,7 @@ class BookingControllerTest {
     @Test
     void create_delegatesToService() {
         BookingRequest req = new BookingRequest(UUID.randomUUID(),
-                ZonedDateTime.now().plusDays(1), ZonedDateTime.now().plusDays(3),
-                "SELF_DRIVE", null, null, null);
+                ZonedDateTime.now().plusDays(1), ZonedDateTime.now().plusDays(3));
         BookingResponse expected = mock(BookingResponse.class);
         when(bookingService.create(req, auth)).thenReturn(expected);
 
@@ -144,7 +143,7 @@ class BookingControllerTest {
     @Test
     void recordReturn_delegatesToService_returns200() {
         UUID id = UUID.randomUUID();
-        BookingReturnRequest req = new BookingReturnRequest(ZonedDateTime.now().plusDays(3));
+        BookingReturnRequest req = new BookingReturnRequest(ZonedDateTime.now().plusDays(3), null);
         BookingResponse expected = mock(BookingResponse.class);
         when(bookingService.recordReturn(id, req, auth)).thenReturn(expected);
 

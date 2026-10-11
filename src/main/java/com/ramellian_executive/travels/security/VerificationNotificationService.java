@@ -1,30 +1,48 @@
 package com.ramellian_executive.travels.security;
 
 import com.ramellian_executive.travels.entity.Booking;
-import com.ramellian_executive.travels.entity.DocumentReviewStatus;
+import com.ramellian_executive.travels.entity.Payment;
 import com.ramellian_executive.travels.entity.User;
 import com.ramellian_executive.travels.entity.UserDocument;
 import com.ramellian_executive.travels.entity.Vehicle;
+import com.ramellian_executive.travels.entity.VehiclePhoto;
+import com.ramellian_executive.travels.repository.vehicle.VehiclePhotoRepository;
+import com.ramellian_executive.travels.service.EmailTemplateService;
+import com.ramellian_executive.travels.service.ReceiptService;
+import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.stereotype.Service;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class VerificationNotificationService {
 
+    private static final Logger log = LoggerFactory.getLogger(VerificationNotificationService.class);
+
     private final JavaMailSender mailSender;
     private final RestClient.Builder restClientBuilder;
+    private final VehiclePhotoRepository vehiclePhotoRepository;
+    private final EmailTemplateService templates;
+    private final ReceiptService receiptService;
 
     @Value("${app.verification.from-email}")
     private String fromEmail;
+    @Value("${app.frontend.url:http://localhost:5173}")
+    private String frontendUrl;
+    @Value("${app.server.url:http://localhost:8080}")
+    private String serverUrl;
     @Value("${app.whatsapp.enabled:false}")
     private boolean whatsappEnabled;
     @Value("${app.whatsapp.base-url}")
@@ -36,160 +54,95 @@ public class VerificationNotificationService {
     @Value("${app.whatsapp.template-name}")
     private String whatsappTemplateName;
 
+    // ─── Verification code ────────────────────────────────────────────────────
+
     @Async("notificationTaskExecutor")
     public void sendEmail(String recipient, String code, String purpose) {
-        SimpleMailMessage message = new SimpleMailMessage();
-        if (fromEmail != null && !fromEmail.isBlank()) {
-            message.setFrom(fromEmail.trim());
-        }
-        message.setTo(recipient);
-        message.setSubject("Ramellian " + purpose + " code");
-        message.setText("Your verification code is " + code + ". It expires soon and can only be used once.");
-        mailSender.send(message);
+        String name = EmailTemplateService.firstName(null);
+        String html = templates.verificationCode(name, code, purpose);
+        send(recipient, "Ramellian " + purpose + " code", html);
     }
+
+    // ─── Booking — renter ─────────────────────────────────────────────────────
 
     @Async("notificationTaskExecutor")
-    public void sendBookingNotification(Booking booking) {
-        if (booking == null || booking.getVehicle() == null) {
-            return;
-        }
-        Vehicle vehicle = booking.getVehicle();
-        User owner = vehicle.getOwner();
-        if (owner == null || owner.getEmailAddress() == null || owner.getEmailAddress().isBlank()) {
-            return;
-        }
-        SimpleMailMessage message = new SimpleMailMessage();
-        if (fromEmail != null && !fromEmail.isBlank()) {
-            message.setFrom(fromEmail.trim());
-        }
-        message.setTo(owner.getEmailAddress().trim());
-        String vehicleTitle = (vehicle.getModel() != null ? vehicle.getModel() : "Vehicle")
-                + (vehicle.getRegistrationNumber() != null && !vehicle.getRegistrationNumber().isBlank()
-                ? " (" + vehicle.getRegistrationNumber() + ")" : "");
-        message.setSubject("New Booking Notification for " + vehicleTitle);
+    public void sendBookingCreatedToRenter(Booking booking, List<String> warnings) {
+        if (booking == null || booking.getUser() == null) return;
+        User renter = booking.getUser();
+        if (blank(renter.getEmailAddress())) return;
 
-        String ownerName = owner.getFirstName() != null && !owner.getFirstName().isBlank() ? owner.getFirstName() : "Vehicle Owner";
-        String renterName = "A customer";
-        if (booking.getUser() != null) {
-            String fName = booking.getUser().getFirstName() != null ? booking.getUser().getFirstName() : "";
-            String lName = booking.getUser().getLastName() != null ? booking.getUser().getLastName() : "";
-            String fullName = (fName + " " + lName).trim();
-            if (!fullName.isBlank()) {
-                renterName = fullName;
-            } else if (booking.getUser().getEmailAddress() != null) {
-                renterName = booking.getUser().getEmailAddress();
-            }
-        }
-
-        StringBuilder text = new StringBuilder();
-        text.append("Hello ").append(ownerName).append(",\n\n");
-        text.append("Your vehicle ").append(vehicleTitle).append(" has been booked by ").append(renterName).append(".\n\n");
-        text.append("Booking Details:\n");
-        if (booking.getId() != null) {
-            text.append("- Booking ID: ").append(booking.getId()).append("\n");
-        }
-        if (booking.getStartTime() != null) {
-            text.append("- Start Time: ").append(booking.getStartTime()).append("\n");
-        }
-        if (booking.getEndTime() != null) {
-            text.append("- End Time: ").append(booking.getEndTime()).append("\n");
-        }
-        if (booking.getBookingMode() != null) {
-            text.append("- Booking Mode: ").append(booking.getBookingMode()).append("\n");
-        }
-        if (booking.getTripType() != null) {
-            text.append("- Trip Type: ").append(booking.getTripType()).append("\n");
-        }
-        if (booking.getRenterNotes() != null && !booking.getRenterNotes().isBlank()) {
-            text.append("- Renter Notes: ").append(booking.getRenterNotes()).append("\n");
-        }
-        text.append("\nPlease log in to your account to review the booking and take necessary action.\n\n");
-        text.append("Best regards,\nRamellian Executive Travels Team");
-
-        message.setText(text.toString());
-        mailSender.send(message);
+        String html = templates.bookingCreatedRenter(booking, vehiclePhotoUrl(booking.getVehicle()), warnings);
+        html = injectCtaUrl(html, frontendUrl + "/bookings/" + booking.getId());
+        send(renter.getEmailAddress(),
+             "Booking Confirmed — " + EmailTemplateService.vehicleTitle(booking.getVehicle()), html);
     }
+
+    // ─── Booking — owner ──────────────────────────────────────────────────────
+
+    @Async("notificationTaskExecutor")
+    public void sendBookingNotification(Booking booking, double commissionRatePct) {
+        if (booking == null || booking.getVehicle() == null) return;
+        User owner = booking.getVehicle().getOwner();
+        if (owner == null || blank(owner.getEmailAddress())) return;
+
+        String html = templates.bookingCreatedOwner(booking, vehiclePhotoUrl(booking.getVehicle()), commissionRatePct);
+        html = injectCtaUrl(html, frontendUrl + "/owner/bookings");
+        send(owner.getEmailAddress(),
+             "New Booking on " + EmailTemplateService.vehicleTitle(booking.getVehicle()), html);
+    }
+
+    // ─── Booking — admin / super-admin ────────────────────────────────────────
+
+    @Async("notificationTaskExecutor")
+    public void sendBookingCreatedToAdmin(Booking booking, User admin) {
+        if (booking == null || admin == null || blank(admin.getEmailAddress())) return;
+
+        String html = templates.bookingCreatedAdmin(booking, vehiclePhotoUrl(booking.getVehicle()));
+        html = injectCtaUrl(html, frontendUrl + "/admin/bookings/" + booking.getId());
+        send(admin.getEmailAddress(),
+             "New Booking — " + EmailTemplateService.vehicleTitle(booking.getVehicle()), html);
+    }
+
+    // ─── Document review ──────────────────────────────────────────────────────
 
     @Async("notificationTaskExecutor")
     public void sendDocumentReviewNotification(UserDocument document) {
-        if (document == null || document.getUser() == null) {
-            return;
-        }
+        if (document == null || document.getUser() == null) return;
         User user = document.getUser();
-        if (user.getEmailAddress() == null || user.getEmailAddress().isBlank()) {
-            return;
-        }
-        SimpleMailMessage message = new SimpleMailMessage();
-        if (fromEmail != null && !fromEmail.isBlank()) {
-            message.setFrom(fromEmail.trim());
-        }
-        message.setTo(user.getEmailAddress().trim());
-        String statusStr = document.getReviewStatus() == DocumentReviewStatus.APPROVED ? "Approved" : "Rejected";
-        String docType = document.getDocumentType() != null ? document.getDocumentType().name() : "Document";
-        message.setSubject("Your Document has been " + statusStr + " - Ramellian Executive Travels");
+        if (blank(user.getEmailAddress())) return;
 
-        String recipientName = user.getFirstName() != null && !user.getFirstName().isBlank()
-                ? user.getFirstName()
-                : "Valued Customer";
+        String docType = document.getDocumentType() != null
+                ? document.getDocumentType().name().replace("_", " ") : "Document";
+        boolean approved = document.getReviewStatus() != null
+                && document.getReviewStatus().name().equals("APPROVED");
 
-        StringBuilder text = new StringBuilder();
-        text.append("Hello ").append(recipientName).append(",\n\n");
-        text.append("Your submitted document of type '").append(docType).append("' has been reviewed by our administration team.\n\n");
-        text.append("Status: ").append(statusStr).append("\n");
-        if (document.getReviewNotes() != null && !document.getReviewNotes().isBlank()) {
-            text.append("Review Notes: ").append(document.getReviewNotes()).append("\n");
-        }
-        if (document.getReviewStatus() == DocumentReviewStatus.REJECTED) {
-            text.append("\nPlease review any notes provided and upload a valid replacement document through your account portal.\n");
-        }
-        text.append("\nBest regards,\nRamellian Executive Travels Team");
-
-        message.setText(text.toString());
-        mailSender.send(message);
+        String html = templates.documentReview(document);
+        html = injectCtaUrl(html, frontendUrl + "/profile/documents");
+        send(user.getEmailAddress(),
+             "Your " + docType + " has been " + (approved ? "Approved" : "Rejected") + " — Ramellian Executive Travels",
+             html);
     }
+
+    // ─── Vehicle review ───────────────────────────────────────────────────────
 
     @Async("notificationTaskExecutor")
     public void sendVehicleReviewNotification(Vehicle vehicle) {
-        if (vehicle == null || vehicle.getOwner() == null) {
-            return;
-        }
+        if (vehicle == null || vehicle.getOwner() == null) return;
         User owner = vehicle.getOwner();
-        if (owner.getEmailAddress() == null || owner.getEmailAddress().isBlank()) {
-            return;
-        }
-        SimpleMailMessage message = new SimpleMailMessage();
-        if (fromEmail != null && !fromEmail.isBlank()) {
-            message.setFrom(fromEmail.trim());
-        }
-        message.setTo(owner.getEmailAddress().trim());
-        String statusStr = vehicle.getApprovalStatus() != null ? vehicle.getApprovalStatus().name() : "REVIEWED";
-        String displayStatus = statusStr.equalsIgnoreCase("APPROVED") ? "Approved" : "Rejected";
-        String vehicleTitle = (vehicle.getModel() != null ? vehicle.getModel() : "Vehicle")
-                + (vehicle.getRegistrationNumber() != null && !vehicle.getRegistrationNumber().isBlank()
-                ? " (" + vehicle.getRegistrationNumber() + ")" : "");
-        message.setSubject("Your Vehicle " + vehicleTitle + " has been " + displayStatus + " - Ramellian Executive Travels");
+        if (blank(owner.getEmailAddress())) return;
 
-        String recipientName = owner.getFirstName() != null && !owner.getFirstName().isBlank()
-                ? owner.getFirstName()
-                : "Vehicle Owner";
+        boolean approved = vehicle.getApprovalStatus() != null
+                && "APPROVED".equalsIgnoreCase(vehicle.getApprovalStatus().name());
 
-        StringBuilder text = new StringBuilder();
-        text.append("Hello ").append(recipientName).append(",\n\n");
-        text.append("Your vehicle ").append(vehicleTitle).append(" has been reviewed by our administration team.\n\n");
-        text.append("Approval Status: ").append(displayStatus).append("\n");
-        if (vehicle.getApprovalNotes() != null && !vehicle.getApprovalNotes().isBlank()) {
-            text.append("Review Notes: ").append(vehicle.getApprovalNotes()).append("\n");
-        }
-        if ("APPROVED".equalsIgnoreCase(statusStr)) {
-            text.append("\nYour vehicle is now approved and eligible for customer listings and bookings.\n");
-        } else {
-            text.append("\nPlease review any admin notes and update your vehicle details or submit any necessary documents.\n");
-        }
-        text.append("\nBest regards,\nRamellian Executive Travels Team");
-
-        message.setText(text.toString());
-        mailSender.send(message);
+        String html = templates.vehicleReview(vehicle);
+        html = injectCtaUrl(html, frontendUrl + "/owner/vehicles");
+        send(owner.getEmailAddress(),
+             "Your Vehicle " + EmailTemplateService.vehicleTitle(vehicle)
+                     + " has been " + (approved ? "Approved" : "Rejected") + " — Ramellian Executive Travels",
+             html);
     }
+
+    // ─── WhatsApp ─────────────────────────────────────────────────────────────
 
     @Async("notificationTaskExecutor")
     public void sendWhatsApp(String phoneNumber, String code) {
@@ -208,11 +161,75 @@ public class VerificationNotificationService {
                         "template", Map.of(
                                 "name", whatsappTemplateName,
                                 "language", Map.of("code", "en_US"),
-                                "components", java.util.List.of(Map.of(
+                                "components", List.of(Map.of(
                                         "type", "body",
-                                        "parameters", java.util.List.of(Map.of(
+                                        "parameters", List.of(Map.of(
                                                 "type", "text", "text", code)))))))
                 .retrieve()
                 .toBodilessEntity();
+    }
+
+    // ─── Receipt ──────────────────────────────────────────────────────────────
+
+    @Async("notificationTaskExecutor")
+    public void sendPaymentReceipt(Payment payment) {
+        if (payment == null || payment.getBooking() == null) return;
+        User renter = payment.getBooking().getUser();
+        if (renter == null || blank(renter.getEmailAddress())) return;
+
+        String html = templates.paymentReceipt(payment);
+        html = injectCtaUrl(html, frontendUrl + "/bookings/" + payment.getBooking().getId());
+
+        Path receiptPath = receiptService.receiptPath(payment);
+        String vehicleTitle = EmailTemplateService.vehicleTitle(payment.getBooking().getVehicle());
+        String subject = "Payment Receipt — " + vehicleTitle;
+
+        try {
+            MimeMessage mime = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mime, true, "UTF-8");
+            if (!blank(fromEmail)) helper.setFrom(fromEmail.trim(), "Ramellian Executive Travels");
+            helper.setTo(renter.getEmailAddress().trim());
+            helper.setSubject(subject);
+            helper.setText(html, true);
+            if (receiptPath != null && receiptPath.toFile().exists()) {
+                helper.addAttachment("Receipt-" + vehicleTitle.replaceAll("[^a-zA-Z0-9]", "_") + ".pdf",
+                        receiptPath.toFile());
+            }
+            mailSender.send(mime);
+        } catch (Exception e) {
+            log.error("Failed to send receipt email to {}: {}", renter.getEmailAddress(), e.getMessage(), e);
+        }
+    }
+
+    // ─── Internal helpers ─────────────────────────────────────────────────────
+
+    private void send(String to, String subject, String html) {
+        try {
+            MimeMessage mime = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mime, false, "UTF-8");
+            if (!blank(fromEmail)) helper.setFrom(fromEmail.trim(), "Ramellian Executive Travels");
+            helper.setTo(to.trim());
+            helper.setSubject(subject);
+            helper.setText(html, true);
+            mailSender.send(mime);
+        } catch (Exception e) {
+            log.error("Failed to send email to {}: {}", to, e.getMessage(), e);
+        }
+    }
+
+    /** Resolves the {{CTA_URL}} placeholder injected by the layout. */
+    private static String injectCtaUrl(String html, String url) {
+        return html.replace("{{CTA_URL}}", url);
+    }
+
+    private String vehiclePhotoUrl(Vehicle vehicle) {
+        if (vehicle == null || vehicle.getId() == null) return null;
+        List<VehiclePhoto> photos = vehiclePhotoRepository.findByVehicleId(vehicle.getId());
+        if (photos.isEmpty()) return null;
+        return serverUrl + photos.get(0).getUrl();
+    }
+
+    private static boolean blank(String s) {
+        return s == null || s.isBlank();
     }
 }

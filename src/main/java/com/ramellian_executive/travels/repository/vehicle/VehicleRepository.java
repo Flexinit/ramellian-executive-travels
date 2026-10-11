@@ -55,13 +55,23 @@ public interface VehicleRepository extends JpaRepository<Vehicle, UUID> {
                 fuelType, transmissionType, selfDrive, chauffeured, ownerId,
                 filterTripTypes,
                 filterTripTypes ? tripTypes : EnumSet.allOf(TripType.class),
-                true,
+                false,
                 effectiveStart,
                 effectiveEnd,
                 (bookingStatuses == null || bookingStatuses.isEmpty())
                         ? List.of(BookingStatus.values())
                         : bookingStatuses);
     }
+
+    @Query("""
+            select distinct b.vehicle.id from Booking b
+            where b.status in :statuses
+              and b.startTime < :endTime
+              and b.endTime > :startTime
+            """)
+    List<UUID> findBookedVehicleIds(@Param("statuses") List<BookingStatus> statuses,
+                                    @Param("startTime") ZonedDateTime startTime,
+                                    @Param("endTime") ZonedDateTime endTime);
 
     @Query("""
             select distinct v from Vehicle v

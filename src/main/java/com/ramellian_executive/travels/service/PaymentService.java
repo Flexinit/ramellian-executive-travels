@@ -29,11 +29,13 @@ import java.util.HexFormat;
 
 @Service
 public class PaymentService {
-    private static final double PLATFORM_RATE = 0.01;
     private final BookingRepository bookingRepository;
     private final PaymentRepository paymentRepository;
     private final BookingContractRepository contractRepository;
     private final ContractTemplateService contractTemplateService;
+    private final PlatformSettingsService platformSettingsService;
+    private final ReceiptService receiptService;
+    private final com.ramellian_executive.travels.security.VerificationNotificationService notificationService;
     private final Path contractDirectory;
     private final boolean manualConfirmationEnabled;
 
@@ -41,6 +43,9 @@ public class PaymentService {
                           BookingContractRepository contractRepository,
                           @Value("${app.contract.directory:uploads/contracts}") String contractDirectory,
                           ContractTemplateService contractTemplateService,
+                          PlatformSettingsService platformSettingsService,
+                          ReceiptService receiptService,
+                          com.ramellian_executive.travels.security.VerificationNotificationService notificationService,
                           @Value("${app.payment.manual-confirmation-enabled:false}")
                           boolean manualConfirmationEnabled) {
         this.bookingRepository = bookingRepository;
@@ -48,6 +53,9 @@ public class PaymentService {
         this.contractRepository = contractRepository;
         this.contractDirectory = Paths.get(contractDirectory).toAbsolutePath().normalize();
         this.contractTemplateService = contractTemplateService;
+        this.platformSettingsService = platformSettingsService;
+        this.receiptService = receiptService;
+        this.notificationService = notificationService;
         this.manualConfirmationEnabled = manualConfirmationEnabled;
     }
 
@@ -79,27 +87,38 @@ public class PaymentService {
         if (paymentRepository.existsByBookingIdAndStatus(bookingId, PaymentStatus.SUCCESSFUL)) {
             return ContractResponse.from(contract);
         }
-        long days = Math.max(1, java.time.Duration.between(booking.getStartTime(), booking.getEndTime()).toDays());
-        double amount = booking.getVehicle().getPricePerDay() * days;
-        double fee = amount * PLATFORM_RATE;
+        long totalHours = java.time.Duration.between(booking.getStartTime(), booking.getEndTime()).toHours();
+        long days = Math.max(1, (totalHours + 23) / 24);
+        double base = booking.getVehicle().getPricePerDay() * days;
+        double fee = base * (platformSettingsService.getCommissionRatePct() / 100.0);
+        double txFee = base * (platformSettingsService.getPesapalTransactionFeeRatePct() / 100.0);
+        double deliveryFee = booking.isDeliveryRequested() ? platformSettingsService.getDeliveryFlatFee() : 0.0;
+        double driverCharge = booking.getBookingMode() == BookingMode.CHAUFFEURED
+                ? platformSettingsService.getDriverFlatCharge() : 0.0;
+        double totalCharge = base + txFee + deliveryFee + driverCharge;
         Payment payment = new Payment();
         payment.setBooking(booking);
         payment.setPaymentMethod(request.paymentMethod().trim().toUpperCase());
-        payment.setAmount(amount);
+        payment.setAmount(totalCharge);
         payment.setPlatformFee(fee);
-        payment.setOwnerPayout(amount - fee);
+        payment.setTransactionFee(txFee);
+        payment.setDeliveryFee(deliveryFee);
+        payment.setDriverCharge(driverCharge);
+        payment.setOwnerPayout(base - fee);
         payment.setStatus(PaymentStatus.SUCCESSFUL);
         payment.setTransactionReference(request.transactionReference().trim());
-        paymentRepository.save(payment);
+        Payment saved = paymentRepository.save(payment);
         booking.setStatus(BookingStatus.CONFIRMED);
         bookingRepository.save(booking);
+        Payment withReceipt = receiptService.generate(saved);
+        notificationService.sendPaymentReceipt(withReceipt);
 
         return ContractResponse.from(contract);
     }
 
     @Transactional
     public ContractResponse draft(UUID bookingId, Authentication authentication) {
-        Booking booking = bookingRepository.findById(bookingId)
+        Booking booking = bookingRepository.findByIdForUpdate(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
         requireRenter(booking, authentication);
         if (booking.getStatus() != BookingStatus.PENDING) {

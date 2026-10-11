@@ -1,5 +1,6 @@
 package com.ramellian_executive.travels.security;
 
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -49,6 +50,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
             }
+        } catch (ExpiredJwtException e) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.getWriter().write(
+                    "{\"status\":401,\"error\":\"Unauthorized\",\"message\":\"Token has expired\",\"details\":{}}");
+            return;
         } catch (JwtException | IllegalArgumentException | UsernameNotFoundException ignored) {
             // Invalid tokens remain unauthenticated and are rejected by the security chain.
         }

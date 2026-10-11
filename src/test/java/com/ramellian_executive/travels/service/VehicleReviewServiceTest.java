@@ -16,7 +16,7 @@ import org.springframework.security.core.Authentication;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,13 +42,13 @@ class VehicleReviewServiceTest {
         vehicle.setRating(4.0);
         booking.setVehicle(vehicle);
         when(authentication.getName()).thenReturn("renter@example.com");
-        when(reviewRepository.existsByBooking(booking)).thenReturn(false);
+        when(reviewRepository.existsByBookingAndReviewType(eq(booking), any())).thenReturn(false);
         when(reviewRepository.save(any(Review.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(reviewRepository.averageRatingByVehicle(vehicleId)).thenReturn(5.0);
 
-        ReviewResponse response = service.create(booking, new ReviewRequest(5.0, "Great", null), authentication);
+        ReviewResponse response = service.create(booking, new ReviewRequest(5, true, "Great", null), authentication);
 
-        assertEquals(5.0, response.rating());
+        assertEquals(5, response.rating());
         verify(vehicleRepository).save(vehicle);
         assertEquals(5.0, vehicle.getRating());
     }
@@ -70,7 +70,7 @@ class VehicleReviewServiceTest {
         renter.setLastName("Doe");
         booking.setUser(renter);
         review.setBooking(booking);
-        review.setRating(4.5);
+        review.setRating(4);
         review.setFeedback("Awesome car");
         when(reviewRepository.findAllByVehicleOwnerId(ownerId)).thenReturn(java.util.List.of(review));
 

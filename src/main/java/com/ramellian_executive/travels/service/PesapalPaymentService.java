@@ -1,9 +1,13 @@
 package com.ramellian_executive.travels.service;
 
 import com.ramellian_executive.travels.entity.*;
+import com.ramellian_executive.travels.event.PaymentConfirmedEvent;
 import com.ramellian_executive.travels.model.PaymentCheckoutResponse;
 import com.ramellian_executive.travels.model.PaymentStatusResponse;
 import com.ramellian_executive.travels.repository.*;
+import com.ramellian_executive.travels.security.VerificationNotificationService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -15,7 +19,10 @@ import java.util.UUID;
 
 @Service
 public class PesapalPaymentService {
-    private static final double PLATFORM_RATE = 0.01;
+    private static String shortId(UUID id) {
+        return id.toString().replace("-", "").substring(0, 12);
+    }
+    private static final double DEFAULT_PLATFORM_RATE = 0.01;
     private final BookingRepository bookingRepository;
     private final BookingGroupRepository bookingGroupRepository;
     private final UserRepository userRepository;
@@ -23,18 +30,22 @@ public class PesapalPaymentService {
     private final BookingContractRepository contractRepository;
     private final PesapalEventRepository eventRepository;
     private final PesapalClient pesapalClient;
+    private final NotificationService appNotificationService;
+    private final VerificationNotificationService notificationService;
+    private final PlatformSettingsService platformSettingsService;
+    private final ReceiptService receiptService;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public PesapalPaymentService(BookingRepository bookingRepository, PaymentRepository paymentRepository,
-                                 BookingContractRepository contractRepository,
-                                 PesapalEventRepository eventRepository, PesapalClient pesapalClient) {
-        this(bookingRepository, null, null, paymentRepository, contractRepository, eventRepository, pesapalClient);
-    }
-
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public PesapalPaymentService(BookingRepository bookingRepository, BookingGroupRepository bookingGroupRepository,
                                  UserRepository userRepository, PaymentRepository paymentRepository,
                                  BookingContractRepository contractRepository,
-                                 PesapalEventRepository eventRepository, PesapalClient pesapalClient) {
+                                 PesapalEventRepository eventRepository, PesapalClient pesapalClient,
+                                 NotificationService appNotificationService,
+                                 VerificationNotificationService notificationService,
+                                 PlatformSettingsService platformSettingsService,
+                                 ReceiptService receiptService,
+                                 ApplicationEventPublisher eventPublisher) {
         this.bookingRepository = bookingRepository;
         this.bookingGroupRepository = bookingGroupRepository;
         this.userRepository = userRepository;
@@ -42,6 +53,11 @@ public class PesapalPaymentService {
         this.contractRepository = contractRepository;
         this.eventRepository = eventRepository;
         this.pesapalClient = pesapalClient;
+        this.appNotificationService = appNotificationService;
+        this.notificationService = notificationService;
+        this.platformSettingsService = platformSettingsService;
+        this.receiptService = receiptService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -58,7 +74,7 @@ public class PesapalPaymentService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Review and accept the contract before payment");
         }
-        Payment existing = paymentRepository.findByBookingId(bookingId).orElse(null);
+        Payment existing = paymentRepository.findByBookingIdAndChargeType(bookingId, PaymentChargeType.RENTAL).orElse(null);
         if (existing != null && existing.getProviderOrderTrackingId() != null
                 && existing.getStatus() == PaymentStatus.PENDING) {
             return new PaymentCheckoutResponse(existing.getId(), "PESAPAL",
@@ -67,21 +83,32 @@ public class PesapalPaymentService {
         }
         long totalHours = java.time.Duration.between(booking.getStartTime(), booking.getEndTime()).toHours();
         long days = Math.max(1, (totalHours + 23) / 24);
-        double amount = booking.getVehicle().getPricePerDay() * days;
-        String merchantReference = "BOOKING-" + bookingId + "-" + UUID.randomUUID();
+        double base = booking.getVehicle().getPricePerDay() * days;
+        double fee = base * (platformSettingsService.getCommissionRatePct() / 100.0);
+        double txFee = base * (platformSettingsService.getPesapalTransactionFeeRatePct() / 100.0);
+        double deliveryFee = booking.isDeliveryRequested() ? platformSettingsService.getDeliveryFlatFee() : 0.0;
+        double driverCharge = booking.getBookingMode() == BookingMode.CHAUFFEURED
+                ? platformSettingsService.getDriverFlatCharge() : 0.0;
+        double totalCharge = base + txFee + deliveryFee + driverCharge;
+        String merchantReference = "BOOKING-" + shortId(bookingId) + "-" + shortId(UUID.randomUUID());
         PesapalClient.PesapalOrder order = pesapalClient.submitOrder(
-                merchantReference, amount, booking.getUser().getEmailAddress(),
+                merchantReference, totalCharge, booking.getUser().getEmailAddress(),
                 booking.getUser().getPhoneNumber(), booking.getUser().getFirstName(),
-                booking.getUser().getLastName(), "Vehicle rental booking " + bookingId);
+                booking.getUser().getLastName(), "Vehicle rental booking " + bookingId,
+                bookingId.toString());
         Payment payment = existing == null ? new Payment() : existing;
         payment.setBooking(booking);
+        payment.setChargeType(PaymentChargeType.RENTAL);
         payment.setProvider("PESAPAL");
         payment.setProviderMerchantReference(merchantReference);
         payment.setProviderOrderTrackingId(order.trackingId());
         payment.setTransactionReference(order.redirectUrl());
-        payment.setAmount(amount);
-        payment.setPlatformFee(amount * PLATFORM_RATE);
-        payment.setOwnerPayout(amount - amount * PLATFORM_RATE);
+        payment.setAmount(totalCharge);
+        payment.setPlatformFee(fee);
+        payment.setTransactionFee(txFee);
+        payment.setDeliveryFee(deliveryFee);
+        payment.setDriverCharge(driverCharge);
+        payment.setOwnerPayout(base - fee);
         payment.setPaymentMethod("PESAPAL");
         payment.setStatus(PaymentStatus.PENDING);
         Payment saved = paymentRepository.save(payment);
@@ -114,7 +141,7 @@ public class PesapalPaymentService {
                         "Review and accept the contract for all bookings before payment");
             }
         }
-        String groupPrefix = "GROUP-" + groupId + "-";
+        String groupPrefix = "GROUP-" + shortId(groupId) + "-";
         Payment existingFirst = paymentRepository.findFirstByProviderMerchantReferenceStartingWith(groupPrefix).orElse(null);
         if (existingFirst != null && existingFirst.getProviderOrderTrackingId() != null
                 && existingFirst.getStatus() == PaymentStatus.PENDING) {
@@ -122,32 +149,46 @@ public class PesapalPaymentService {
                     existingFirst.getProviderOrderTrackingId(), existingFirst.getTransactionReference(),
                     existingFirst.getStatus().name());
         }
+        double commissionRate = platformSettingsService.getCommissionRatePct() / 100.0;
+        double txFeeRate = platformSettingsService.getPesapalTransactionFeeRatePct() / 100.0;
+        double flatDeliveryFee = platformSettingsService.getDeliveryFlatFee();
+        double flatDriverCharge = platformSettingsService.getDriverFlatCharge();
         double total = 0.0;
         for (Booking booking : bookings) {
             long totalHours = java.time.Duration.between(booking.getStartTime(), booking.getEndTime()).toHours();
             long days = Math.max(1, (totalHours + 23) / 24);
-            total += booking.getVehicle().getPricePerDay() * days;
+            double base = booking.getVehicle().getPricePerDay() * days;
+            double deliveryFee = booking.isDeliveryRequested() ? flatDeliveryFee : 0.0;
+            double driverCharge = booking.getBookingMode() == BookingMode.CHAUFFEURED ? flatDriverCharge : 0.0;
+            total += base + base * txFeeRate + deliveryFee + driverCharge;
         }
         User renter = group.getRenter();
-        String merchantReference = groupPrefix + UUID.randomUUID();
+        String merchantReference = groupPrefix + shortId(UUID.randomUUID());
         PesapalClient.PesapalOrder order = pesapalClient.submitOrder(
                 merchantReference, total, renter.getEmailAddress(),
                 renter.getPhoneNumber(), renter.getFirstName(), renter.getLastName(),
-                "Batch booking group " + groupId);
+                "Batch booking group " + groupId, groupId.toString());
         Payment firstSaved = null;
         for (Booking booking : bookings) {
             long totalHours = java.time.Duration.between(booking.getStartTime(), booking.getEndTime()).toHours();
             long days = Math.max(1, (totalHours + 23) / 24);
-            double amount = booking.getVehicle().getPricePerDay() * days;
-            Payment payment = paymentRepository.findByBookingId(booking.getId()).orElse(new Payment());
+            double base = booking.getVehicle().getPricePerDay() * days;
+            double fee = base * commissionRate;
+            double txFee = base * txFeeRate;
+            double deliveryFee = booking.isDeliveryRequested() ? flatDeliveryFee : 0.0;
+            double driverCharge = booking.getBookingMode() == BookingMode.CHAUFFEURED ? flatDriverCharge : 0.0;
+            Payment payment = paymentRepository.findByBookingIdAndChargeType(booking.getId(), PaymentChargeType.RENTAL).orElse(new Payment());
             payment.setBooking(booking);
             payment.setProvider("PESAPAL");
-            payment.setProviderMerchantReference(merchantReference + "-B" + booking.getId());
+            payment.setProviderMerchantReference(merchantReference + "-B" + shortId(booking.getId()));
             payment.setProviderOrderTrackingId(order.trackingId());
             payment.setTransactionReference(order.redirectUrl());
-            payment.setAmount(amount);
-            payment.setPlatformFee(amount * PLATFORM_RATE);
-            payment.setOwnerPayout(amount - amount * PLATFORM_RATE);
+            payment.setAmount(base + txFee + deliveryFee + driverCharge);
+            payment.setPlatformFee(fee);
+            payment.setTransactionFee(txFee);
+            payment.setDeliveryFee(deliveryFee);
+            payment.setDriverCharge(driverCharge);
+            payment.setOwnerPayout(base - fee);
             payment.setPaymentMethod("PESAPAL");
             payment.setStatus(PaymentStatus.PENDING);
             Payment saved = paymentRepository.save(payment);
@@ -184,11 +225,12 @@ public class PesapalPaymentService {
                     overstayPayment.getStatus().name());
         }
         double amount = overstayPayment.getAmount();
-        String merchantReference = "OVERSTAY-" + bookingId + "-" + UUID.randomUUID();
+        String merchantReference = "OVERSTAY-" + shortId(bookingId) + "-" + shortId(UUID.randomUUID());
         PesapalClient.PesapalOrder order = pesapalClient.submitOrder(
                 merchantReference, amount, booking.getUser().getEmailAddress(),
                 booking.getUser().getPhoneNumber(), booking.getUser().getFirstName(),
-                booking.getUser().getLastName(), "Overstay charge for booking " + bookingId);
+                booking.getUser().getLastName(), "Overstay charge for booking " + bookingId,
+                bookingId.toString());
         overstayPayment.setProvider("PESAPAL");
         overstayPayment.setProviderMerchantReference(merchantReference);
         overstayPayment.setProviderOrderTrackingId(order.trackingId());
@@ -228,6 +270,9 @@ public class PesapalPaymentService {
             if (successful) {
                 payment.setStatus(PaymentStatus.SUCCESSFUL);
                 payment.setProviderReceipt(transaction.receipt());
+                Payment savedOverstay = paymentRepository.save(payment);
+                eventPublisher.publishEvent(new PaymentConfirmedEvent(savedOverstay));
+                return;
             } else if (failed) {
                 payment.setStatus(PaymentStatus.FAILED);
             }
@@ -264,12 +309,16 @@ public class PesapalPaymentService {
                 if (successful) {
                     payment.setStatus(PaymentStatus.SUCCESSFUL);
                     payment.setProviderReceipt(transaction.receipt());
-                    payment.getBooking().setStatus(BookingStatus.CONFIRMED);
-                    bookingRepository.save(payment.getBooking());
+                    Booking booking = payment.getBooking();
+                    booking.setStatus(BookingStatus.CONFIRMED);
+                    bookingRepository.save(booking);
+                    notifyOwnerOnPayment(booking);
+                    Payment savedGroup = paymentRepository.save(payment);
+                    eventPublisher.publishEvent(new PaymentConfirmedEvent(savedGroup));
                 } else if (failed) {
                     payment.setStatus(PaymentStatus.FAILED);
+                    paymentRepository.save(payment);
                 }
-                paymentRepository.save(payment);
             }
             return;
         }
@@ -304,17 +353,50 @@ public class PesapalPaymentService {
         if (successful) {
             payment.setStatus(PaymentStatus.SUCCESSFUL);
             payment.setProviderReceipt(transaction.receipt());
-            payment.getBooking().setStatus(BookingStatus.CONFIRMED);
-            bookingRepository.save(payment.getBooking());
+            Booking booking = payment.getBooking();
+            if (booking.getStatus() == BookingStatus.PENDING) {
+                booking.setStatus(BookingStatus.CONFIRMED);
+                bookingRepository.save(booking);
+                notifyOwnerOnPayment(booking);
+            }
+            Payment saved = paymentRepository.save(payment);
+            Payment withReceipt = receiptService.generate(saved);
+            notificationService.sendPaymentReceipt(withReceipt);
+            eventPublisher.publishEvent(new PaymentConfirmedEvent(withReceipt));
         } else if (failed) {
             payment.setStatus(PaymentStatus.FAILED);
+            paymentRepository.save(payment);
         }
-        paymentRepository.save(payment);
+    }
+
+    private void notifyOwnerOnPayment(Booking booking) {
+        if (booking == null || booking.getVehicle() == null) return;
+        Vehicle vehicle = booking.getVehicle();
+        User owner = vehicle.getOwner();
+        if (owner == null) return;
+        String vehicleTitle = (vehicle.getModel() != null ? vehicle.getModel() : "Vehicle")
+                + (vehicle.getRegistrationNumber() != null && !vehicle.getRegistrationNumber().isBlank()
+                ? " (" + vehicle.getRegistrationNumber() + ")" : "");
+        String renterName = booking.getUser() != null && booking.getUser().getFirstName() != null
+                ? booking.getUser().getFirstName() : "A customer";
+        if (appNotificationService != null) {
+            appNotificationService.createNotification(
+                    owner,
+                    "New Confirmed Booking for " + vehicleTitle,
+                    renterName + " has paid and confirmed a booking for " + vehicleTitle + ".",
+                    "BOOKING_CONFIRMED",
+                    booking.getId(),
+                    "BOOKING"
+            );
+        }
+        if (notificationService != null) {
+            notificationService.sendBookingNotification(booking, platformSettingsService.getCommissionRatePct());
+        }
     }
 
     @Transactional
     public PaymentStatusResponse status(UUID bookingId, Authentication authentication) {
-        Payment payment = paymentRepository.findByBookingId(bookingId)
+        Payment payment = paymentRepository.findByBookingIdAndChargeType(bookingId, PaymentChargeType.RENTAL)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found"));
         boolean renter = payment.getBooking().getUser().getEmailAddress()
                 .equalsIgnoreCase(authentication.getName());

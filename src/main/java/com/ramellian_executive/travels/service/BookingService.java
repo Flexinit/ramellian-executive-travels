@@ -2,12 +2,14 @@ package com.ramellian_executive.travels.service;
 
 import com.ramellian_executive.travels.entity.*;
 import com.ramellian_executive.travels.model.*;
+
 import com.ramellian_executive.travels.repository.BookingRepository;
 import com.ramellian_executive.travels.repository.BookingGroupRepository;
 import com.ramellian_executive.travels.repository.UserRepository;
-import com.ramellian_executive.travels.repository.vehicle.VehicleRepository;
 import com.ramellian_executive.travels.repository.UserDocumentRepository;
+import com.ramellian_executive.travels.repository.vehicle.VehicleRepository;
 import com.ramellian_executive.travels.repository.PaymentRepository;
+import com.ramellian_executive.travels.service.vehicle.VehicleReviewService;
 import com.ramellian_executive.travels.security.VerificationNotificationService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -37,13 +39,10 @@ public class BookingService {
     private final PaymentRepository paymentRepository;
     private final VerificationNotificationService notificationService;
     private final NotificationService appNotificationService;
+    private final PlatformSettingsService platformSettingsService;
+    private final VehicleReviewService reviewService;
     @Value("${app.booking.pending-expiration-ms:900000}")
     private long pendingExpirationMs;
-
-    public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
-                          UserRepository userRepository, UserDocumentRepository documentRepository) {
-        this(bookingRepository, null, vehicleRepository, userRepository, documentRepository, null, null, null);
-    }
 
     @org.springframework.beans.factory.annotation.Autowired
     public BookingService(BookingRepository bookingRepository, BookingGroupRepository bookingGroupRepository,
@@ -51,7 +50,9 @@ public class BookingService {
                           UserRepository userRepository, UserDocumentRepository documentRepository,
                           PaymentRepository paymentRepository,
                           VerificationNotificationService notificationService,
-                          NotificationService appNotificationService) {
+                          NotificationService appNotificationService,
+                          PlatformSettingsService platformSettingsService,
+                          VehicleReviewService reviewService) {
         this.bookingRepository = bookingRepository;
         this.bookingGroupRepository = bookingGroupRepository;
         this.vehicleRepository = vehicleRepository;
@@ -60,24 +61,8 @@ public class BookingService {
         this.paymentRepository = paymentRepository;
         this.notificationService = notificationService;
         this.appNotificationService = appNotificationService;
-    }
-
-    public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
-                          UserRepository userRepository, UserDocumentRepository documentRepository,
-                          PaymentRepository paymentRepository,
-                          VerificationNotificationService notificationService) {
-        this(bookingRepository, null, vehicleRepository, userRepository, documentRepository, paymentRepository, notificationService, null);
-    }
-
-    public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
-                          UserRepository userRepository, UserDocumentRepository documentRepository,
-                          PaymentRepository paymentRepository) {
-        this(bookingRepository, null, vehicleRepository, userRepository, documentRepository, paymentRepository, null, null);
-    }
-
-    public BookingService(BookingRepository bookingRepository, VehicleRepository vehicleRepository,
-                          UserRepository userRepository) {
-        this(bookingRepository, null, vehicleRepository, userRepository, null, null, null, null);
+        this.platformSettingsService = platformSettingsService;
+        this.reviewService = reviewService;
     }
 
     @Transactional
@@ -87,7 +72,7 @@ public class BookingService {
         }
         BookingMode mode;
         try {
-            mode = BookingMode.valueOf(request.bookingMode().trim().toUpperCase(Locale.ROOT));
+            mode = BookingMode.valueOf(request.bookingMode().strip().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Booking mode must be SELF_DRIVE or CHAUFFEURED");
         }
@@ -101,9 +86,6 @@ public class BookingService {
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Renter not found"));
         } else {
             renter = findUser(authentication.getName());
-        }
-        if (documentRepository != null) {
-            requireDocuments(renter, mode);
         }
         Vehicle vehicle = vehicleRepository.findById(request.vehicleId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Vehicle not found"));
@@ -140,66 +122,92 @@ public class BookingService {
         if (request.renterNotes() != null && !request.renterNotes().isBlank()) {
             booking.setRenterNotes(request.renterNotes().trim());
         }
+        if (request.pickupLocation() != null && !request.pickupLocation().isBlank()) {
+            booking.setPickupLocation(request.pickupLocation().trim());
+        }
+        if (request.dropoffLocation() != null && !request.dropoffLocation().isBlank()) {
+            booking.setDropoffLocation(request.dropoffLocation().trim());
+        }
+        booking.setDeliveryRequested(Boolean.TRUE.equals(request.deliveryRequested()));
+        booking.setRenterContactEmail(renter.getEmailAddress());
+        booking.setRenterContactPhone(renter.getPhoneNumber());
 
         Booking savedBooking = bookingRepository.save(booking);
-        if (notificationService != null) {
-            notificationService.sendBookingNotification(savedBooking);
-        }
         if (appNotificationService != null) {
             String vehicleTitle = (vehicle.getModel() != null ? vehicle.getModel() : "Vehicle")
                     + (vehicle.getRegistrationNumber() != null && !vehicle.getRegistrationNumber().isBlank()
                     ? " (" + vehicle.getRegistrationNumber() + ")" : "");
-            if (vehicle.getOwner() != null) {
-                String renterName = renter.getFirstName() != null && !renter.getFirstName().isBlank()
-                        ? renter.getFirstName() : "A customer";
-                appNotificationService.createNotification(
-                        vehicle.getOwner(),
-                        "New Booking for " + vehicleTitle,
-                        "A new booking has been placed by " + renterName + " for " + vehicleTitle + ".",
-                        "BOOKING_CREATED",
-                        savedBooking.getId(),
-                        "BOOKING"
-                );
-            }
             appNotificationService.createNotification(
                     renter,
                     "Booking Created for " + vehicleTitle,
-                    "Your booking for " + vehicleTitle + " has been placed successfully.",
+                    "Your booking for " + vehicleTitle + " has been placed successfully. Please complete payment to confirm.",
                     "BOOKING_CREATED",
                     savedBooking.getId(),
                     "BOOKING"
             );
+            String renterContact = buildContactSummary(renter);
+            String adminMessage = "New booking for " + vehicleTitle + " by " + renterContact
+                    + ". Booking ID: " + savedBooking.getId();
+            for (User admin : userRepository.findByRoles_RoleName("SUPER_ADMIN")) {
+                appNotificationService.createNotification(admin, "New Booking — " + vehicleTitle,
+                        adminMessage, "BOOKING_CREATED", savedBooking.getId(), "BOOKING");
+            }
+            for (User admin : userRepository.findByRoles_RoleName("ADMIN")) {
+                appNotificationService.createNotification(admin, "New Booking — " + vehicleTitle,
+                        adminMessage, "BOOKING_CREATED", savedBooking.getId(), "BOOKING");
+            }
+            User owner = vehicle.getOwner();
+            if (owner != null && !owner.getId().equals(renter.getId())) {
+                appNotificationService.createNotification(owner, "New Booking on Your Vehicle",
+                        "A new booking has been placed for " + vehicleTitle + ". Please await confirmation.",
+                        "BOOKING_CREATED", savedBooking.getId(), "BOOKING");
+            }
         }
-        return BookingResponse.from(savedBooking);
+        List<String> warnings = documentWarnings(renter, mode);
+        BookingResponse response = BookingResponse.from(savedBooking,
+                platformSettingsService.getCommissionRatePct(),
+                platformSettingsService.getPesapalTransactionFeeRatePct(),
+                platformSettingsService.getDeliveryFlatFee(),
+                platformSettingsService.getDriverFlatCharge()).withoutOwnerPayout();
+        return warnings.isEmpty() ? response : response.withWarnings(warnings);
     }
 
-    private void requireDocuments(User renter, BookingMode mode) {
-        if (renter.getIdNumber() == null || renter.getIdNumber().isBlank()
-                || (!documentRepository.existsByUserIdAndDocumentTypeAndReviewStatus(
-                renter.getId(), DocumentType.NATIONAL_ID, DocumentReviewStatus.APPROVED)
-                && !documentRepository.existsByUserIdAndDocumentTypeAndReviewStatus(
-                renter.getId(), DocumentType.PASSPORT, DocumentReviewStatus.APPROVED))) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                    "An approved national ID or passport and ID number are required before booking");
+    private List<String> documentWarnings(User renter, BookingMode mode) {
+        List<String> warnings = new ArrayList<>();
+        boolean hasId = !blank(renter.getIdNumber())
+                && (documentRepository.existsByUserIdAndDocumentTypeAndReviewStatus(
+                        renter.getId(), DocumentType.NATIONAL_ID, DocumentReviewStatus.APPROVED)
+                    || documentRepository.existsByUserIdAndDocumentTypeAndReviewStatus(
+                        renter.getId(), DocumentType.PASSPORT, DocumentReviewStatus.APPROVED));
+        if (!hasId) {
+            warnings.add("Please upload and get your national ID or passport approved before pickup. " +
+                         "Your booking may be cancelled without a refund if documents are missing at handover.");
         }
         if (mode == BookingMode.SELF_DRIVE
                 && !documentRepository.existsByUserIdAndDocumentTypeAndReviewStatus(
-                renter.getId(), DocumentType.DRIVING_LICENSE, DocumentReviewStatus.APPROVED)) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                    "An approved driving license is required for self-drive bookings");
+                        renter.getId(), DocumentType.DRIVING_LICENSE, DocumentReviewStatus.APPROVED)) {
+            warnings.add("A valid driving license is required for self-drive rentals. " +
+                         "Please upload and get it approved before pickup or your booking may be cancelled without a refund.");
         }
+        return warnings;
+    }
+
+    private static boolean blank(String s) {
+        return s == null || s.isBlank();
     }
 
     @Transactional(readOnly = true)
     public List<BookingResponse> mine(Authentication authentication) {
+        double rate = platformSettingsService.getCommissionRatePct();
         return bookingRepository.findByUserEmailAddressIgnoreCaseOrderByStartTimeDesc(authentication.getName())
-                .stream().map(BookingResponse::from).toList();
+                .stream().map(b -> BookingResponse.from(b, rate).withoutOwnerPayout()).toList();
     }
 
     @Transactional(readOnly = true)
     public List<BookingResponse> forOwner(Authentication authentication) {
+        double rate = platformSettingsService.getCommissionRatePct();
         return bookingRepository.findByVehicleOwnerEmailAddressIgnoreCaseOrderByStartTimeDesc(authentication.getName())
-                .stream().map(BookingResponse::from).toList();
+                .stream().map(b -> BookingResponse.from(b, rate)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -207,11 +215,12 @@ public class BookingService {
         Booking booking = find(id);
         boolean renter = booking.getUser().getEmailAddress().equalsIgnoreCase(authentication.getName());
         boolean owner = booking.getVehicle().getOwner().getEmailAddress().equalsIgnoreCase(authentication.getName());
-        boolean manager = has(authentication, "BOOKING_MANAGE");
+        boolean manager = has(authentication, "BOOKING_MANAGE") || has(authentication, "ROLE_SUPER_ADMIN") || has(authentication, "ROLE_ADMIN");
         if (!renter && !owner && !manager) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot access this booking");
         }
-        return BookingResponse.from(booking);
+        BookingResponse response = BookingResponse.from(booking, platformSettingsService.getCommissionRatePct());
+        return (owner || manager) ? response : response.withoutOwnerPayout();
     }
 
     @Transactional
@@ -245,8 +254,24 @@ public class BookingService {
                         "Chauffeur is unavailable for this period");
             }
             booking.setChauffeur(chauffeur);
-            return BookingResponse.from(bookingRepository.save(booking));
+            return BookingResponse.from(bookingRepository.save(booking), platformSettingsService.getCommissionRatePct());
         }
+
+    @Transactional
+    @Scheduled(fixedDelay = 60000)
+    public void transitionBookingStatuses() {
+        ZonedDateTime now = ZonedDateTime.now();
+        bookingRepository.findByStatusAndStartTimeBefore(BookingStatus.CONFIRMED, now)
+                .forEach(booking -> {
+                    booking.setStatus(BookingStatus.ACTIVE);
+                    bookingRepository.save(booking);
+                });
+        bookingRepository.findByStatusAndEndTimeBefore(BookingStatus.ACTIVE, now)
+                .forEach(booking -> {
+                    booking.setStatus(BookingStatus.COMPLETED);
+                    bookingRepository.save(booking);
+                });
+    }
 
     @Transactional
     @Scheduled(fixedDelayString = "${app.booking.pending-expiration-ms:900000}")
@@ -256,8 +281,10 @@ public class BookingService {
             bookingRepository.findByStatusAndCreatedAtBefore(BookingStatus.PENDING, cutoff)
                     .forEach(booking -> {
                         if (paymentRepository == null
-                                || !paymentRepository.existsByBookingIdAndStatus(
-                                booking.getId(), PaymentStatus.SUCCESSFUL)) {
+                                || (!paymentRepository.existsByBookingIdAndStatus(
+                                        booking.getId(), PaymentStatus.SUCCESSFUL)
+                                    && !paymentRepository.existsByBookingIdAndStatusAndProviderOrderTrackingIdIsNotNull(
+                                        booking.getId(), PaymentStatus.PENDING))) {
                             booking.setStatus(BookingStatus.CANCELLED);
                             booking.setDispatcherNotes("Automatically expired before payment");
                             bookingRepository.save(booking);
@@ -266,7 +293,7 @@ public class BookingService {
     }
 
     @Transactional(readOnly = true)
-    public BookingReportResponse report(List<Booking> bookings) {
+    public BookingReportResponse report(List<Booking> bookings, boolean includeOwnerPayout) {
         ZonedDateTime now = ZonedDateTime.now();
         List<Booking> upcoming = bookings.stream()
                 .filter(b -> (b.getStatus() == BookingStatus.PENDING || b.getStatus() == BookingStatus.CONFIRMED)
@@ -283,26 +310,43 @@ public class BookingService {
         double gross = payments.stream().mapToDouble(Payment::getAmount).sum();
         double platform = payments.stream().mapToDouble(Payment::getPlatformFee).sum();
         double payout = payments.stream().mapToDouble(Payment::getOwnerPayout).sum();
+        // keyed by booking id so toResponses can substitute actual payment values
+        java.util.Map<UUID, Payment> paymentByBooking = payments.stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        p -> p.getBooking().getId(), p -> p, (a, b) -> a));
         return new BookingReportResponse(now, bookings.size(), upcoming.size(), active.size(),
                 completed.size(), cancelled.size(), rejected.size(), gross, platform, payout,
-                toResponses(upcoming), toResponses(active), toResponses(completed),
-                toResponses(cancelled), toResponses(rejected));
+                toResponses(upcoming, includeOwnerPayout, paymentByBooking),
+                toResponses(active, includeOwnerPayout, paymentByBooking),
+                toResponses(completed, includeOwnerPayout, paymentByBooking),
+                toResponses(cancelled, includeOwnerPayout, paymentByBooking),
+                toResponses(rejected, includeOwnerPayout, paymentByBooking));
     }
 
     public BookingReportResponse renterReport(Authentication authentication) {
-        return report(bookingRepository.findByUserEmailAddressIgnoreCaseOrderByStartTimeDesc(authentication.getName()));
+        return report(bookingRepository.findByUserEmailAddressIgnoreCaseOrderByStartTimeDesc(authentication.getName()), false);
     }
 
     public BookingReportResponse ownerReport(Authentication authentication) {
-        return report(bookingRepository.findByVehicleOwnerEmailAddressIgnoreCaseOrderByStartTimeDesc(authentication.getName()));
+        return report(bookingRepository.findByVehicleOwnerEmailAddressIgnoreCaseOrderByStartTimeDesc(authentication.getName()), true);
     }
 
     public BookingReportResponse platformReport() {
-        return report(bookingRepository.findAllByOrderByStartTimeDesc());
+        return report(bookingRepository.findAllByOrderByStartTimeDesc(), true);
     }
 
-    private List<BookingResponse> toResponses(List<Booking> bookings) {
-        return bookings.stream().map(BookingResponse::from).toList();
+    private List<BookingResponse> toResponses(List<Booking> bookings, boolean includeOwnerPayout,
+                                              java.util.Map<UUID, Payment> paymentByBooking) {
+        double rate = platformSettingsService.getCommissionRatePct();
+        return bookings.stream().map(b -> {
+            BookingResponse r = BookingResponse.from(b, rate);
+            Payment p = paymentByBooking.get(b.getId());
+            if (p != null) {
+                r = r.withActualPaymentValues(
+                        p.getAmount(), p.getPlatformFee(), p.getOwnerPayout());
+            }
+            return includeOwnerPayout ? r : r.withoutOwnerPayout();
+        }).toList();
     }
 
     @Transactional
@@ -336,21 +380,33 @@ public class BookingService {
         booking.setStatus(next);
         booking.setDispatcherNotes(request.notes());
         Booking savedBooking = bookingRepository.save(booking);
-        if (appNotificationService != null) {
-            Vehicle veh = savedBooking.getVehicle();
-            String vehicleTitle = veh != null && veh.getModel() != null ? veh.getModel() : "Vehicle";
-            if (savedBooking.getUser() != null) {
-                appNotificationService.createNotification(
-                        savedBooking.getUser(),
-                        "Booking " + next.name() + " for " + vehicleTitle,
-                        "Your booking for " + vehicleTitle + " is now " + next.name().toLowerCase() + ".",
-                        "BOOKING_STATUS_CHANGED",
-                        savedBooking.getId(),
-                        "BOOKING"
-                );
+        Vehicle veh = savedBooking.getVehicle();
+        String vehicleTitle = veh != null && veh.getModel() != null ? veh.getModel() : "Vehicle";
+        if (appNotificationService != null && savedBooking.getUser() != null) {
+            appNotificationService.createNotification(
+                    savedBooking.getUser(),
+                    "Booking " + next.name() + " for " + vehicleTitle,
+                    "Your booking for " + vehicleTitle + " is now " + next.name().toLowerCase() + ".",
+                    "BOOKING_STATUS_CHANGED",
+                    savedBooking.getId(),
+                    "BOOKING"
+            );
+        }
+        if (next == BookingStatus.CONFIRMED) {
+            List<String> warnings = documentWarnings(savedBooking.getUser(), savedBooking.getBookingMode());
+            notificationService.sendBookingCreatedToRenter(savedBooking, warnings);
+            if (veh != null && veh.getOwner() != null
+                    && !veh.getOwner().getId().equals(savedBooking.getUser().getId())) {
+                notificationService.sendBookingNotification(savedBooking, platformSettingsService.getCommissionRatePct());
+            }
+            for (User admin : userRepository.findByRoles_RoleName("SUPER_ADMIN")) {
+                notificationService.sendBookingCreatedToAdmin(savedBooking, admin);
+            }
+            for (User admin : userRepository.findByRoles_RoleName("ADMIN")) {
+                notificationService.sendBookingCreatedToAdmin(savedBooking, admin);
             }
         }
-        return BookingResponse.from(savedBooking);
+        return BookingResponse.from(savedBooking, platformSettingsService.getCommissionRatePct());
     }
 
     @Transactional
@@ -385,9 +441,20 @@ public class BookingService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Vehicle not found"));
         long totalHours = Duration.between(request.startTime(), request.endTime()).toHours();
         long days = Math.max(1, (totalHours + 23) / 24);
-        BigDecimal amount = BigDecimal.valueOf(vehicle.getPricePerDay()).multiply(BigDecimal.valueOf(days));
+        BigDecimal base = BigDecimal.valueOf(vehicle.getPricePerDay()).multiply(BigDecimal.valueOf(days));
+        BigDecimal commissionRate = BigDecimal.valueOf(platformSettingsService.getCommissionRatePct()).divide(BigDecimal.valueOf(100));
+        BigDecimal fee = base.multiply(commissionRate).setScale(2, java.math.RoundingMode.HALF_UP);
+        BigDecimal txFeeRate = BigDecimal.valueOf(platformSettingsService.getPesapalTransactionFeeRatePct()).divide(BigDecimal.valueOf(100));
+        BigDecimal txFee = base.multiply(txFeeRate).setScale(2, java.math.RoundingMode.HALF_UP);
+        BigDecimal deliveryFee = Boolean.TRUE.equals(request.deliveryRequested())
+                ? BigDecimal.valueOf(platformSettingsService.getDeliveryFlatFee()).setScale(2, java.math.RoundingMode.HALF_UP)
+                : BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP);
+        BigDecimal driverCharge = com.ramellian_executive.travels.entity.BookingMode.CHAUFFEURED.equals(request.bookingMode())
+                ? BigDecimal.valueOf(platformSettingsService.getDriverFlatCharge()).setScale(2, java.math.RoundingMode.HALF_UP)
+                : BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP);
         return new BookingQuoteResponse(vehicle.getId(), days,
-                BigDecimal.valueOf(vehicle.getPricePerDay()), amount);
+                BigDecimal.valueOf(vehicle.getPricePerDay()), base, fee, txFee, deliveryFee, driverCharge,
+                base.add(txFee).add(deliveryFee).add(driverCharge));
     }
 
     @Transactional
@@ -429,7 +496,11 @@ public class BookingService {
                 paymentRepository.save(overstayPayment);
             }
         }
-        return BookingResponse.from(bookingRepository.save(booking));
+        Booking saved = bookingRepository.save(booking);
+        if (request.review() != null) {
+            reviewService.create(saved, request.review(), authentication);
+        }
+        return BookingResponse.from(saved);
     }
 
     private boolean validTransition(BookingStatus from, BookingStatus to) {
@@ -454,5 +525,15 @@ public class BookingService {
     private boolean has(Authentication authentication, String authority) {
         return authentication.getAuthorities().stream()
                 .anyMatch(a -> authority.equals(a.getAuthority()));
+    }
+
+    private static String buildContactSummary(User user) {
+        String name = java.util.stream.Stream.of(user.getFirstName(), user.getLastName())
+                .filter(s -> s != null && !s.isBlank())
+                .collect(java.util.stream.Collectors.joining(" "));
+        String contact = java.util.stream.Stream.of(user.getEmailAddress(), user.getPhoneNumber())
+                .filter(s -> s != null && !s.isBlank())
+                .collect(java.util.stream.Collectors.joining(" / "));
+        return (name.isBlank() ? "" : name + " — ") + contact;
     }
 }

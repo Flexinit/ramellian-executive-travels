@@ -15,6 +15,6 @@ public record ContractResponse(UUID id, UUID bookingId, String status,
                 contract.getStatus().name(), contract.getContractText(),
                 contract.getSignedAt(), contract.getDocumentHash(),
                 contract.getSignedFileName() != null, contract.getReviewedAt(),
-                contract.getAcceptedAt(), contract.getAcceptedAt() == null);
+                contract.getAcceptedAt(), contract.getAcceptedAt() != null && contract.getSignedAt() == null);
     }
 }

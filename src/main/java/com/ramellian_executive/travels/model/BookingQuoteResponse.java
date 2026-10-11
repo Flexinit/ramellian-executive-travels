@@ -7,5 +7,10 @@ public record BookingQuoteResponse(
     UUID vehicleId,
     long numberOfDays,
     BigDecimal pricePerDay,
-    BigDecimal estimatedAmount
+    BigDecimal baseAmount,
+    BigDecimal platformFee,
+    BigDecimal transactionFee,
+    BigDecimal deliveryFee,
+    BigDecimal driverCharge,
+    BigDecimal totalAmount
 ) {}

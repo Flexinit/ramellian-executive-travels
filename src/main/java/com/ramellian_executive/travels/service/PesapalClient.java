@@ -1,28 +1,36 @@
 package com.ramellian_executive.travels.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.Map;
 
 @Component
 public class PesapalClient {
-    private final RestClient client;
+    private static final Logger log = LoggerFactory.getLogger(PesapalClient.class);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    private final HttpClient http = HttpClient.newHttpClient();
+    private final String baseUrl;
     private final String consumerKey;
     private final String consumerSecret;
     private final String callbackUrl;
     private final String notificationId;
 
-    public PesapalClient(RestClient.Builder builder,
-                         @Value("${app.payment.pesapal.base-url:https://pay.pesapal.com/v3}") String baseUrl,
-                         @Value("${app.payment.pesapal.consumer-key:}") String consumerKey,
-                         @Value("${app.payment.pesapal.consumer-secret:}") String consumerSecret,
-                         @Value("${app.payment.pesapal.callback-url:}") String callbackUrl,
-                         @Value("${app.payment.pesapal.notification-id:}") String notificationId) {
-        this.client = builder.baseUrl(baseUrl).build();
+    public PesapalClient(
+            @Value("${app.payment.pesapal.base-url:https://pay.pesapal.com/v3}") String baseUrl,
+            @Value("${app.payment.pesapal.consumer-key:}") String consumerKey,
+            @Value("${app.payment.pesapal.consumer-secret:}") String consumerSecret,
+            @Value("${app.payment.pesapal.callback-url:}") String callbackUrl,
+            @Value("${app.payment.pesapal.notification-id:}") String notificationId) {
+        this.baseUrl = baseUrl;
         this.consumerKey = consumerKey;
         this.consumerSecret = consumerSecret;
         this.callbackUrl = callbackUrl;
@@ -31,46 +39,71 @@ public class PesapalClient {
 
     public PesapalOrder submitOrder(String merchantReference, double amount,
                                     String email, String phone, String firstName,
-                                    String lastName, String description) {
+                                    String lastName, String description, String bookingId) {
         ensureConfigured();
-        JsonNode response = client.post().uri("/api/Auth/RequestToken")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("consumer_key", consumerKey, "consumer_secret", consumerSecret))
-                .retrieve().body(JsonNode.class);
-        String token = required(response, "token");
-        Map<String, Object> billing = Map.of(
-                "email_address", email,
-                "phone_number", phone == null ? "" : phone,
-                "first_name", firstName == null ? "" : firstName,
-                "last_name", lastName == null ? "" : lastName);
-        JsonNode order = client.post().uri("/api/Transactions/SubmitOrderRequest")
-                .header("Authorization", "Bearer " + token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("id", merchantReference, "currency", "KES",
-                        "amount", amount, "description", description,
-                        "callback_url", callbackUrl, "notification_id", notificationId,
-                        "billing_address", billing))
-                .retrieve().body(JsonNode.class);
+        String token = fetchToken();
+        String resolvedCallbackUrl = callbackUrl + (callbackUrl.contains("?") ? "&" : "?")
+                + "bookingId=" + bookingId;
+        Map<String, Object> body = Map.of(
+                "id", merchantReference, "currency", "KES",
+                "amount", amount, "description", description,
+                "callback_url", resolvedCallbackUrl, "notification_id", notificationId,
+                "billing_address", Map.of(
+                        "email_address", email,
+                        "phone_number", phone == null ? "" : phone,
+                        "first_name", firstName == null ? "" : firstName,
+                        "last_name", lastName == null ? "" : lastName));
+        Map<String, Object> order = post(baseUrl + "/api/Transactions/SubmitOrderRequest", token, body);
         return new PesapalOrder(required(order, "order_tracking_id"),
                 required(order, "redirect_url"));
     }
 
     public PesapalTransaction status(String trackingId) {
         ensureConfigured();
-        JsonNode response = client.post().uri("/api/Auth/RequestToken")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("consumer_key", consumerKey, "consumer_secret", consumerSecret))
-                .retrieve().body(JsonNode.class);
-        String token = required(response, "token");
-        JsonNode transaction = client.get()
-                .uri(uri -> uri.path("/api/Transactions/GetTransactionStatus")
-                        .queryParam("orderTrackingId", trackingId).build())
-                .header("Authorization", "Bearer " + token)
-                .retrieve().body(JsonNode.class);
-        return new PesapalTransaction(
-                transaction.path("status_code").asInt(-1),
-                transaction.path("payment_status_description").asText(""),
-                transaction.path("confirmation_code").asText(""));
+        String token = fetchToken();
+        Map<String, Object> transaction = get(
+                baseUrl + "/api/Transactions/GetTransactionStatus?orderTrackingId=" + trackingId, token);
+        int statusCode = transaction.get("status_code") instanceof Number n ? n.intValue() : -1;
+        String desc = String.valueOf(transaction.getOrDefault("payment_status_description", ""));
+        String receipt = String.valueOf(transaction.getOrDefault("confirmation_code", ""));
+        return new PesapalTransaction(statusCode, desc, receipt);
+    }
+
+    private String fetchToken() {
+        Map<String, Object> resp = post(baseUrl + "/api/Auth/RequestToken", null,
+                Map.of("consumer_key", consumerKey, "consumer_secret", consumerSecret));
+        return required(resp, "token");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> post(String url, String token, Object body) {
+        try {
+            String json = MAPPER.writeValueAsString(body);
+            HttpRequest.Builder req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(json));
+            if (token != null) req.header("Authorization", "Bearer " + token);
+            HttpResponse<String> resp = http.send(req.build(), HttpResponse.BodyHandlers.ofString());
+            log.info("Pesapal POST {} → status={} body={}", url, resp.statusCode(), resp.body());
+            return MAPPER.readValue(resp.body(), Map.class);
+        } catch (Exception e) {
+            throw new IllegalStateException("Pesapal POST failed: " + url + " — " + e.getMessage(), e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> get(String url, String token) {
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Authorization", "Bearer " + token)
+                    .GET().build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            return MAPPER.readValue(resp.body(), Map.class);
+        } catch (Exception e) {
+            throw new IllegalStateException("Pesapal GET failed: " + url + " — " + e.getMessage(), e);
+        }
     }
 
     private void ensureConfigured() {
@@ -80,10 +113,12 @@ public class PesapalClient {
         }
     }
 
-    private String required(JsonNode node, String field) {
-        String value = node.path(field).asText("");
-        if (value.isBlank()) throw new IllegalStateException("Pesapal response missing " + field);
-        return value;
+    private String required(Map<String, Object> map, String field) {
+        Object value = map == null ? null : map.get(field);
+        String str = value == null ? "" : value.toString().trim();
+        if (str.isBlank()) throw new IllegalStateException(
+                "Pesapal response missing " + field + ". Full response: " + map);
+        return str;
     }
 
     public record PesapalOrder(String trackingId, String redirectUrl) {}

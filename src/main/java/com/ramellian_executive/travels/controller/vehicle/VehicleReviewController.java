@@ -22,9 +22,14 @@ public class VehicleReviewController {
 
     @PostMapping("/bookings/{bookingId}")
     public ReviewResponse create(@PathVariable UUID bookingId, @Valid @RequestBody ReviewRequest request, Authentication authentication) {
-        Booking booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
+        Booking booking = findBooking(bookingId);
         return service.create(booking, request, authentication);
+    }
+
+    @PostMapping("/bookings/{bookingId}/renter")
+    public ReviewResponse rateRenter(@PathVariable UUID bookingId, @Valid @RequestBody ReviewRequest request, Authentication authentication) {
+        Booking booking = findBooking(bookingId);
+        return service.createRenterReview(booking, request, authentication);
     }
 
     @GetMapping("/vehicles/{vehicleId}")
@@ -35,5 +40,15 @@ public class VehicleReviewController {
     @GetMapping("/owners/{ownerId}")
     public List<ReviewResponse> findByOwner(@PathVariable UUID ownerId) {
         return service.findByOwner(ownerId);
+    }
+
+    @GetMapping("/renters/{renterId}")
+    public List<ReviewResponse> findRenterReviews(@PathVariable UUID renterId) {
+        return service.findRenterReviews(renterId);
+    }
+
+    private Booking findBooking(UUID bookingId) {
+        return bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
     }
 }

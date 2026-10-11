@@ -16,8 +16,15 @@ public class Review extends AbstractEntity {
     @JoinColumn(name = "booking_id", nullable = false)
     private Booking booking;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "review_type", nullable = false)
+    private ReviewType reviewType = ReviewType.VEHICLE;
+
     @Column(name = "rating", nullable = false)
-    private Double rating;
+    private Integer rating;
+
+    @Column(name = "customer_satisfied", nullable = false)
+    private Boolean customerSatisfied;
 
     @Column(name = "feedback")
     private String feedback;

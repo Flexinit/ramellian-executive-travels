@@ -30,7 +30,6 @@ class VehiclePhotoServiceTest {
         Vehicle vehicle = new Vehicle();
         vehicle.setId(UUID.randomUUID());
         when(vehicleRepository.findById(vehicle.getId())).thenReturn(Optional.of(vehicle));
-        when(authentication.getName()).thenReturn("owner@example.com");
         com.ramellian_executive.travels.entity.User owner = new com.ramellian_executive.travels.entity.User();
         owner.setEmailAddress("owner@example.com");
         vehicle.setOwner(owner);

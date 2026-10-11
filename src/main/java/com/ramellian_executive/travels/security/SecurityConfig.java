@@ -18,8 +18,12 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.expression.WebExpressionAuthorizationManager;
+import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import jakarta.servlet.http.HttpServletResponse;
 
 @Configuration
 @EnableMethodSecurity
@@ -46,37 +50,38 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/rental-terms", "/api/v1/rental-terms/category/**", "/api/v1/rental-terms/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/bookings/quote").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/booking-leads").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/bot/whatsapp/inbound").permitAll()
                         .requestMatchers("/api/v1/super-admin/**").hasRole("SUPER_ADMIN")
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
                         .requestMatchers("/api/v1/users/*").authenticated()
                         .requestMatchers("/api/v1/documents/me").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/documents").authenticated()
-                        .requestMatchers("/api/v1/documents/admin/**").hasAnyAuthority("DOCUMENT_REVIEW", "BOOKING_MANAGE")
-                        .requestMatchers("/api/v1/chauffeur/**").hasRole("CHAUFFEUR")
-                        .requestMatchers("/api/v1/owner/**").hasRole("OWNER")
-                        .requestMatchers("/api/v1/renter/**").hasRole("RENTER")
-                        .requestMatchers(HttpMethod.DELETE, "/api/v1/bookings/**").hasAuthority("BOOKING_DELETE")
-                        .requestMatchers(HttpMethod.DELETE, "/api/v1/vehicles/**").hasAuthority("VEHICLE_DELETE")
-                        .requestMatchers(HttpMethod.DELETE, "/api/v1/payments/**").hasAuthority("PAYMENT_DELETE")
+                        .requestMatchers("/api/v1/documents/admin/**").access(superAdminOr("hasAnyAuthority('DOCUMENT_REVIEW','BOOKING_MANAGE')"))
+                        .requestMatchers("/api/v1/chauffeur/**").access(superAdminOr("hasRole('CHAUFFEUR')"))
+                        .requestMatchers("/api/v1/owner/**").access(superAdminOr("hasRole('OWNER')"))
+                        .requestMatchers("/api/v1/renter/**").access(superAdminOr("hasRole('RENTER')"))
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/bookings/**").access(superAdminOr("hasAuthority('BOOKING_DELETE')"))
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/vehicles/**").access(superAdminOr("hasAuthority('VEHICLE_DELETE')"))
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/payments/**").access(superAdminOr("hasAuthority('PAYMENT_DELETE')"))
                         // Booking create/read: any authenticated user — service layer enforces ownership.
                         // Renters/owners have no explicit permissions by default so hasAuthority gates block them.
                         .requestMatchers("/api/v1/bookings/create").authenticated()
                         .requestMatchers("/api/v1/bookings/create-batch").authenticated()
                         .requestMatchers("/api/v1/payments/pesapal/booking-groups/*/checkout").authenticated()
-                        .requestMatchers("/api/v1/bookings/reports/admin").hasAuthority("BOOKING_MANAGE")
+                        .requestMatchers("/api/v1/bookings/reports/admin").access(superAdminOr("hasAuthority('BOOKING_MANAGE')"))
                         .requestMatchers("/api/v1/bookings/reports/**").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/v1/bookings/*/status").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/v1/bookings/*/chauffeur")
-                                .hasAnyAuthority("BOOKING_MANAGE", "BOOKING_UPDATE")
+                                .access(superAdminOr("hasAnyAuthority('BOOKING_MANAGE','BOOKING_UPDATE')"))
                         .requestMatchers("/api/v1/bookings/**").authenticated()
                         .requestMatchers("/api/v1/notifications/**").authenticated()
                         .requestMatchers("/api/v1/chat/**").authenticated()
-                        .requestMatchers("/api/v1/vehicles/create", "/api/v1/vehicles/create-vehicle").hasAuthority("VEHICLE_CREATE")
+                        .requestMatchers("/api/v1/vehicles/create", "/api/v1/vehicles/create-vehicle").access(superAdminOr("hasAuthority('VEHICLE_CREATE')"))
                         .requestMatchers("/api/v1/vehicles/*/photos").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/reviews/**").hasAuthority("REVIEW_CREATE")
-                        .requestMatchers("/api/v1/reviews/**").hasAuthority("REVIEW_READ")
-                        .requestMatchers(HttpMethod.PUT, "/api/v1/vehicles/**").hasAnyAuthority("VEHICLE_UPDATE", "VEHICLE_MANAGE")
-                        .requestMatchers("/api/v1/vehicles/**").hasAuthority("VEHICLE_READ")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/reviews/**").access(superAdminOr("hasAuthority('REVIEW_CREATE')"))
+                        .requestMatchers("/api/v1/reviews/**").access(superAdminOr("hasAuthority('REVIEW_READ')"))
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/vehicles/**").access(superAdminOr("hasAnyAuthority('VEHICLE_UPDATE','VEHICLE_MANAGE')"))
+                        .requestMatchers("/api/v1/vehicles/**").access(superAdminOr("hasAuthority('VEHICLE_READ')"))
                         .requestMatchers("/api/v1/payments/create").authenticated()
                         .requestMatchers("/api/v1/payments/bookings/*/confirm").authenticated()
                         .requestMatchers("/api/v1/payments/pesapal/bookings/*/checkout").authenticated()
@@ -84,13 +89,33 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/payments/pesapal/ipn").permitAll()
                         .requestMatchers("/api/v1/payments/bookings/*/contract/draft").authenticated()
                         .requestMatchers("/api/v1/payments/bookings/*/contract/accept").authenticated()
-                        .requestMatchers("/api/v1/payments/contracts/*/sign").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payments/contracts/*/sign").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/payments/contracts/*", "/api/v1/payments/contracts/*/document").authenticated()
                         .requestMatchers("/api/v1/contract-templates/owner", "/api/v1/contract-templates/mine")
-                                .hasAuthority("VEHICLE_UPDATE")
+                                .access(superAdminOr("hasAuthority('VEHICLE_UPDATE')"))
                         .requestMatchers("/api/v1/contract-templates/admin/**")
-                                .hasAuthority("BOOKING_MANAGE")
-                        .requestMatchers("/api/v1/payments/**").hasAuthority("PAYMENT_MANAGE")
+                                .access(superAdminOr("hasAuthority('BOOKING_MANAGE')"))
+                        .requestMatchers("/api/v1/payments/**").access(superAdminOr("hasAuthority('PAYMENT_MANAGE')"))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/handovers/bookings/*/pickup",
+                                "/api/v1/handovers/bookings/*/dropoff").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/handovers/bookings/*").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/booking-policies/bookings/*/cancel",
+                                "/api/v1/booking-policies/bookings/*/postpone").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/booking-policies/bookings/*/effective").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/booking-policies/platform").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/booking-policies/platform").access(superAdminOr("hasAuthority('BOOKING_MANAGE')"))
+                        .requestMatchers(HttpMethod.GET, "/api/v1/booking-policies/owner").access(superAdminOr("hasAuthority('VEHICLE_UPDATE')"))
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/booking-policies/owner").access(superAdminOr("hasAuthority('VEHICLE_UPDATE')"))
+                        .requestMatchers(HttpMethod.GET, "/api/v1/platform-settings/commission").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/platform-settings/commission").hasRole("SUPER_ADMIN")
                         .anyRequest().authenticated())
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            response.setContentType("application/json");
+                            response.getWriter().write(
+                                    "{\"status\":401,\"error\":\"Unauthorized\",\"message\":\"Authentication required or token has expired\",\"details\":{}}");
+                        }))
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
@@ -125,5 +150,9 @@ public class SecurityConfig {
     @Bean
     AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
         return configuration.getAuthenticationManager();
+    }
+
+    private static AuthorizationManager<RequestAuthorizationContext> superAdminOr(String expression) {
+        return new WebExpressionAuthorizationManager("hasRole('SUPER_ADMIN') or (" + expression + ")");
     }
 }

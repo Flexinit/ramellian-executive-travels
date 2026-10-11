@@ -11,11 +11,14 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.security.access.AccessDeniedException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException exception) {
@@ -63,8 +66,18 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception exception) {
+        log.error("Unhandled exception [{}]: {}", exception.getClass().getName(), exception.getMessage(), exception);
+        Throwable root = exception;
+        while (root.getCause() != null) root = root.getCause();
+        log.error("Root cause [{}]: {}", root.getClass().getName(), root.getMessage());
+        Throwable cause = exception;
+        StringBuilder chain = new StringBuilder("[" + exception.getClass().getName() + "] " + exception.getMessage());
+        while (cause.getCause() != null) {
+            cause = cause.getCause();
+            chain.append(" | caused by ").append(cause.getClass().getSimpleName()).append(": ").append(cause.getMessage());
+        }
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(), "Internal Server Error",
-                "An unexpected error occurred", Map.of()));
+                chain.toString(), Map.of()));
     }
 }

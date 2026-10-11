@@ -4,6 +4,8 @@ import com.ramellian_executive.travels.model.PaymentCheckoutResponse;
 import com.ramellian_executive.travels.model.PaymentStatusResponse;
 import com.ramellian_executive.travels.service.PesapalPaymentService;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +17,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/payments/pesapal")
 public class PesapalPaymentController {
+    private static final Logger log = LoggerFactory.getLogger(PesapalPaymentController.class);
     private final PesapalPaymentService service;
 
     @PostMapping("/bookings/{bookingId}/checkout")
@@ -32,7 +35,11 @@ public class PesapalPaymentController {
     @RequestMapping(value = "/ipn", method = {RequestMethod.GET, RequestMethod.POST})
     public Map<String, String> ipn(@RequestParam String OrderTrackingId,
                                    @RequestParam String OrderMerchantReference) {
-        service.processCallback(OrderTrackingId, OrderMerchantReference);
+        try {
+            service.processCallback(OrderTrackingId, OrderMerchantReference);
+        } catch (Exception ex) {
+            log.error("IPN processing failed for tracking={} ref={}: {}", OrderTrackingId, OrderMerchantReference, ex.getMessage(), ex);
+        }
         return Map.of("status", "received");
     }
 

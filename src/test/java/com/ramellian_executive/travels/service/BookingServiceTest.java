@@ -36,21 +36,28 @@ class BookingServiceTest {
     @Mock BookingGroupRepository bookingGroupRepository;
     @Mock VehicleRepository vehicleRepository;
     @Mock UserRepository userRepository;
+    @Mock UserDocumentRepository documentRepository;
     @Mock PaymentRepository paymentRepository;
+    @Mock com.ramellian_executive.travels.service.vehicle.VehicleReviewService reviewService;
     @Mock VerificationNotificationService notificationService;
     @Mock NotificationService appNotificationService;
+    @Mock PlatformSettingsService platformSettingsService;
     @Mock Authentication authentication;
 
     private BookingService service;
 
     @BeforeEach
     void setUp() {
-        // null documentRepository skips document validation — tested separately
+        when(platformSettingsService.getCommissionRatePct()).thenReturn(1.0);
+        when(platformSettingsService.getPesapalTransactionFeeRatePct()).thenReturn(1.0);
+        when(platformSettingsService.getDeliveryFlatFee()).thenReturn(0.0);
+        when(platformSettingsService.getDriverFlatCharge()).thenReturn(0.0);
         service = new BookingService(
                 bookingRepository, bookingGroupRepository,
-                vehicleRepository, userRepository,
-                null, paymentRepository,
-                notificationService, appNotificationService);
+                vehicleRepository, userRepository, documentRepository,
+                paymentRepository,
+                notificationService, appNotificationService,
+                platformSettingsService, reviewService);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────
@@ -304,12 +311,11 @@ class BookingServiceTest {
         }
 
         @Test
-        void notifiesOwnerAndRenterOnCreation() {
+        void noEmailNotificationsOnCreation() {
             UUID vId = UUID.randomUUID();
             User owner = user("owner@test.com");
             User renter = user("renter@test.com");
             Vehicle v = approvedVehicle(vId, owner);
-            v.setRegistrationNumber("KXY 001A");
 
             asRenter(renter);
             when(vehicleRepository.findById(vId)).thenReturn(Optional.of(v));
@@ -320,9 +326,7 @@ class BookingServiceTest {
             service.create(new BookingRequest(vId, start, start.plusDays(2),
                     "SELF_DRIVE", TripType.GENERAL, "Notes", null), authentication);
 
-            verify(notificationService).sendBookingNotification(any(Booking.class));
-            verify(appNotificationService, times(2)).createNotification(
-                    any(), anyString(), anyString(), eq("BOOKING_CREATED"), any(), eq("BOOKING"));
+            verifyNoInteractions(notificationService);
         }
     }
 
@@ -649,7 +653,7 @@ class BookingServiceTest {
                     new BookingQuoteRequest(vId, start, start.plusDays(3)));
 
             assertEquals(3L, resp.numberOfDays());
-            assertEquals(450.0, resp.estimatedAmount().doubleValue(), 0.01);
+            assertEquals(454.5, resp.totalAmount().doubleValue(), 0.01); // 450 base + 1% fee
         }
 
         @Test
@@ -664,7 +668,7 @@ class BookingServiceTest {
                     new BookingQuoteRequest(vId, start, start.plusHours(25)));
 
             assertEquals(2L, resp.numberOfDays());
-            assertEquals(200.0, resp.estimatedAmount().doubleValue(), 0.01);
+            assertEquals(202.0, resp.totalAmount().doubleValue(), 0.01); // 200 base + 1% fee
         }
 
         @Test
@@ -679,7 +683,7 @@ class BookingServiceTest {
                     new BookingQuoteRequest(vId, start, start.plusHours(3)));
 
             assertEquals(1L, resp.numberOfDays());
-            assertEquals(80.0, resp.estimatedAmount().doubleValue(), 0.01);
+            assertEquals(80.8, resp.totalAmount().doubleValue(), 0.01); // 80 base + 1% fee
         }
 
         @Test

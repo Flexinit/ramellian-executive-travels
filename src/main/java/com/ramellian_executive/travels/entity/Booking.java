@@ -51,12 +51,30 @@ public class Booking extends AbstractEntity {
     @Column(name = "renter_notes", length = 1000)
     private String renterNotes;
 
+    @Column(name = "pickup_location", length = 500)
+    private String pickupLocation;
+
+    @Column(name = "dropoff_location", length = 500)
+    private String dropoffLocation;
+
+    @Column(name = "delivery_requested", nullable = false)
+    private boolean deliveryRequested = false;
+
+    @Column(name = "renter_contact_email")
+    private String renterContactEmail;
+
+    @Column(name = "renter_contact_phone")
+    private String renterContactPhone;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "booking_group_id")
     private BookingGroup bookingGroup;
 
     @Column(name = "actual_end_time")
     private ZonedDateTime actualEndTime;
+
+    @Column(name = "postponement_count", nullable = false)
+    private int postponementCount = 0;
 
     public void setStatus(String status) {
         this.status = BookingStatus.valueOf(status.trim().toUpperCase());

@@ -34,10 +34,15 @@ public record VehicleResponse(
         VehicleApprovalStatus approvalStatus,
         String approvalNotes,
         String reviewedBy,
-        ZonedDateTime reviewedAt
+        ZonedDateTime reviewedAt,
+        boolean booked
 ) {
 
     public static VehicleResponse from(Vehicle vehicle) {
+        return from(vehicle, false);
+    }
+
+    public static VehicleResponse from(Vehicle vehicle, boolean booked) {
         return new VehicleResponse(
                 vehicle.getId(),
                 vehicle.getModel(),
@@ -64,6 +69,7 @@ public record VehicleResponse(
                 vehicle.getApprovalStatus(),
                 vehicle.getApprovalNotes(),
                 vehicle.getReviewedBy(),
-                vehicle.getReviewedAt());
+                vehicle.getReviewedAt(),
+                booked);
     }
 }

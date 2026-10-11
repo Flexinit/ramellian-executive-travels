@@ -190,11 +190,19 @@ public class VehicleService {
         }
         java.util.Set<com.ramellian_executive.travels.entity.TripType> resolvedTripTypes =
                 (tripTypes == null || tripTypes.isEmpty()) ? null : tripTypes;
+        java.time.ZonedDateTime now = java.time.ZonedDateTime.now();
+        java.time.ZonedDateTime effectiveStart = startTime != null ? startTime : now;
+        // When no dates provided use a 24-hour window so same-day bookings show the booked badge
+        java.time.ZonedDateTime effectiveEnd = endTime != null ? endTime : now.plusDays(1);
+        java.util.Set<java.util.UUID> bookedIds = new java.util.HashSet<>(
+                vehicleRepository.findBookedVehicleIds(
+                        List.of(BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ACTIVE),
+                        effectiveStart, effectiveEnd));
         List<VehicleResponse> vehicles = vehicleRepository.search(blankToNull(query),
                 blankToNull(location), minPrice, maxPrice, capacity, blankToNull(fuelType),
                 blankToNull(transmissionType), selfDrive, chauffeured, ownerId, resolvedTripTypes, startTime, endTime,
                 List.of(BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ACTIVE))
-                .stream().map(VehicleResponse::from).toList();
+                .stream().map(v -> VehicleResponse.from(v, bookedIds.contains(v.getId()))).toList();
         return switch (sort == null ? "recommended" : sort.trim().toLowerCase()) {
             case "price_asc" -> vehicles.stream().sorted(java.util.Comparator.comparing(
                     VehicleResponse::pricePerDay)).toList();
@@ -218,7 +226,12 @@ public class VehicleService {
 
     @Transactional(readOnly = true)
     public VehicleResponse getVehicle(UUID id) {
-        return VehicleResponse.from(findVehicle(id));
+        Vehicle vehicle = findVehicle(id);
+        java.time.ZonedDateTime now = java.time.ZonedDateTime.now();
+        boolean booked = vehicleRepository.findBookedVehicleIds(
+                List.of(BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ACTIVE),
+                now, now.plusDays(1)).contains(vehicle.getId());
+        return VehicleResponse.from(vehicle, booked);
     }
 
     @Transactional
