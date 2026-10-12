@@ -61,7 +61,7 @@ class VehicleServiceTest {
         VehicleRequest request = new VehicleRequest(
                 "Toyota Land Cruiser", "VIN123", "KDA123A", "Nairobi", 150.0,
                 7, "Black", "PETROL", "AUTOMATIC", true, true, tripTypes,
-                true, from, to, true, true, "http://example.com/sticker.jpg");
+                true, from, to, true, true, "http://example.com/sticker.jpg", null, null, null);
 
         VehicleResponse response = vehicleService.createVehicle(request, authentication);
 
@@ -119,7 +119,7 @@ class VehicleServiceTest {
         VehicleRequest request = new VehicleRequest(
                 "Mercedes S-Class", "VIN999", "KDB456Z", "Mombasa", 250.0,
                 4, "Silver", "DIESEL", "AUTOMATIC", false, true, tripTypes,
-                true, from, to, true, true, "http://example.com/new-sticker.jpg");
+                true, from, to, true, true, "http://example.com/new-sticker.jpg", null, null, null);
 
         VehicleResponse response = vehicleService.updateVehicle(id, request, authentication);
 
@@ -165,7 +165,7 @@ class VehicleServiceTest {
         VehicleRequest request = new VehicleRequest(
                 "Mercedes S-Class", "VIN999", "KDB456Z", "Mombasa", 250.0,
                 4, "Silver", "DIESEL", "AUTOMATIC", false, true, null,
-                true, null, null, true, true, null);
+                true, null, null, true, true, null, null, null, null);
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class,
                 () -> vehicleService.updateVehicle(id, request, authentication));
@@ -269,7 +269,7 @@ class VehicleServiceTest {
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
                 () -> vehicleService.updateVehicle(UUID.randomUUID(), new VehicleRequest(
                         "Toyota", "VIN123", "KDA123A", "Nairobi", 100.0,
-                        5, "Black", "PETROL", "AUTOMATIC", true, false, null, true, null, null, true, true, null), authentication));
+                        5, "Black", "PETROL", "AUTOMATIC", true, false, null, true, null, null, true, true, null, null, null, null), authentication));
 
         assertEquals(403, exception.getStatusCode().value());
     }

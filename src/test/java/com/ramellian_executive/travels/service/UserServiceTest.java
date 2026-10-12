@@ -59,7 +59,8 @@ class UserServiceTest {
                 "https://cdn.example.com/id-back.jpg",
                 "https://cdn.example.com/profile.jpg",
                 "https://cdn.example.com/dl-front.jpg",
-                "https://cdn.example.com/dl-back.jpg"
+                "https://cdn.example.com/dl-back.jpg",
+                null
         );
 
         UserResponse response = userService.updateProfile(authentication, request);
@@ -102,6 +103,7 @@ class UserServiceTest {
                 null,
                 null,
                 "https://cdn.example.com/avatar.png",
+                null,
                 null,
                 null
         );
@@ -179,6 +181,7 @@ class UserServiceTest {
                 "https://cdn.example.com/id-front.jpg",
                 "https://cdn.example.com/id-back.jpg",
                 "https://cdn.example.com/profile.jpg",
+                null,
                 null,
                 null
         );
