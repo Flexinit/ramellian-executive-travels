@@ -87,7 +87,9 @@
       "mcp__idea__get_run_configurations",
       "mcp__idea__execute_run_configuration",
       "Bash(mvn test *)",
-      "mcp__claude_ai_Claude_Docs__update"
+      "mcp__claude_ai_Claude_Docs__update",
+      "Bash(./mvnw -B compile -q)",
+      "Bash(./mvnw -B compile)"
     ]
   }
 }

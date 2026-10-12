@@ -177,10 +177,13 @@ public class VerificationNotificationService {
         User renter = payment.getBooking().getUser();
         if (renter == null || blank(renter.getEmailAddress())) return;
 
-        String html = templates.paymentReceipt(payment);
+        Path receiptPath = receiptService.receiptPath(payment);
+        boolean hasPdf = receiptPath != null && receiptPath.toFile().exists();
+        if (!hasPdf) log.warn("Receipt PDF not found for payment {} — attaching without file", payment.getId());
+
+        String html = templates.paymentReceipt(payment, hasPdf);
         html = injectCtaUrl(html, frontendUrl + "/bookings/" + payment.getBooking().getId());
 
-        Path receiptPath = receiptService.receiptPath(payment);
         String vehicleTitle = EmailTemplateService.vehicleTitle(payment.getBooking().getVehicle());
         String subject = "Payment Receipt — " + vehicleTitle;
 

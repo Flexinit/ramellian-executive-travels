@@ -83,6 +83,9 @@ public class UserService {
         if (request.drivingLicenseBackUrl() != null) {
             user.setDrivingLicenseBackUrl(request.drivingLicenseBackUrl().trim());
         }
+        if (request.drivingLicenceNumber() != null) {
+            user.setDrivingLicenceNumber(request.drivingLicenceNumber().trim());
+        }
         if (request.profilePhotoUrl() != null) {
             user.setProfilePhotoUrl(request.profilePhotoUrl().trim());
         }

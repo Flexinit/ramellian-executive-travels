@@ -17,13 +17,14 @@ public record BookingRequest(@NotNull UUID vehicleId,
                              UUID renterId,
                              @Size(max = 500) String pickupLocation,
                              @Size(max = 500) String dropoffLocation,
-                             Boolean deliveryRequested) {
+                             Boolean deliveryRequested,
+                             Integer passengerCount) {
     public BookingRequest(UUID vehicleId, ZonedDateTime startTime, ZonedDateTime endTime) {
-        this(vehicleId, startTime, endTime, "SELF_DRIVE", null, null, null, null, null, null);
+        this(vehicleId, startTime, endTime, "SELF_DRIVE", null, null, null, null, null, null, null);
     }
 
     public BookingRequest(UUID vehicleId, ZonedDateTime startTime, ZonedDateTime endTime,
                           String bookingMode, TripType tripType, String renterNotes, UUID renterId) {
-        this(vehicleId, startTime, endTime, bookingMode, tripType, renterNotes, renterId, null, null, null);
+        this(vehicleId, startTime, endTime, bookingMode, tripType, renterNotes, renterId, null, null, null, null);
     }
 }

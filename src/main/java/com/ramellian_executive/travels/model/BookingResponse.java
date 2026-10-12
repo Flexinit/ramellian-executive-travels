@@ -18,6 +18,7 @@ public record BookingResponse(UUID id, UUID vehicleId,
                               String pickupLocation, String dropoffLocation,
                               String renterContactEmail, String renterContactPhone,
                               boolean deliveryRequested, Double deliveryFee, Double driverCharge,
+                              Integer passengerCount,
                               List<String> warnings) {
 
     public static BookingResponse from(Booking booking) {
@@ -30,7 +31,7 @@ public record BookingResponse(UUID id, UUID vehicleId,
                 ownerPayout, numberOfDays, tripType, renterNotes, dispatcherNotes, chauffeurEmail,
                 actualEndTime, overstayDays, overstayAmount,
                 pickupLocation, dropoffLocation, renterContactEmail, renterContactPhone,
-                deliveryRequested, deliveryFee, driverCharge, warnings);
+                deliveryRequested, deliveryFee, driverCharge, passengerCount, warnings);
     }
 
     public BookingResponse withActualPaymentValues(Double paidAmount, Double paidPlatformFee, Double paidOwnerPayout) {
@@ -44,7 +45,7 @@ public record BookingResponse(UUID id, UUID vehicleId,
                 numberOfDays, tripType, renterNotes, dispatcherNotes, chauffeurEmail,
                 actualEndTime, overstayDays, overstayAmount,
                 pickupLocation, dropoffLocation, renterContactEmail, renterContactPhone,
-                deliveryRequested, deliveryFee, driverCharge, warnings);
+                deliveryRequested, deliveryFee, driverCharge, passengerCount, warnings);
     }
 
     public BookingResponse withoutOwnerPayout() {
@@ -54,7 +55,7 @@ public record BookingResponse(UUID id, UUID vehicleId,
                 numberOfDays, tripType, renterNotes, dispatcherNotes, chauffeurEmail,
                 actualEndTime, overstayDays, overstayAmount,
                 pickupLocation, dropoffLocation, renterContactEmail, renterContactPhone,
-                deliveryRequested, deliveryFee, driverCharge, warnings);
+                deliveryRequested, deliveryFee, driverCharge, passengerCount, warnings);
     }
 
     public static BookingResponse from(Booking booking, double commissionRatePct) {
@@ -108,6 +109,7 @@ public record BookingResponse(UUID id, UUID vehicleId,
                 booking.getPickupLocation(), booking.getDropoffLocation(),
                 booking.getRenterContactEmail(), booking.getRenterContactPhone(),
                 booking.isDeliveryRequested(), deliveryFee, driverCharge,
+                booking.getPassengerCount(),
                 null);
     }
 }

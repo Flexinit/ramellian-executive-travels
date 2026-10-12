@@ -13,5 +13,6 @@ public record ProfileRequest(
         @Size(max = 1000) String idNumberUrlBack,
         @Size(max = 1000) String profilePhotoUrl,
         @Size(max = 1000) String drivingLicenseFrontUrl,
-        @Size(max = 1000) String drivingLicenseBackUrl) {
+        @Size(max = 1000) String drivingLicenseBackUrl,
+        @Size(max = 100) String drivingLicenceNumber) {
 }

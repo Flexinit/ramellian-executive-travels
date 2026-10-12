@@ -92,4 +92,13 @@ public class Vehicle extends AbstractEntity {
 
     @Column(name = "reviewed_at")
     private ZonedDateTime reviewedAt;
+
+    @Column(name = "year")
+    private Integer year;
+
+    @Column(name = "insurer")
+    private String insurer;
+
+    @Column(name = "policy_number")
+    private String policyNumber;
 }

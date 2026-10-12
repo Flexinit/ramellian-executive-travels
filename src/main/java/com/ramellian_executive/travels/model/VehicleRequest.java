@@ -27,7 +27,10 @@ public record VehicleRequest(
         ZonedDateTime availableTo,
         boolean hasWorkingAC,
         boolean comprehensiveInsurance,
-        String insuranceVerificationStickerPhoto
+        String insuranceVerificationStickerPhoto,
+        Integer year,
+        String insurer,
+        String policyNumber
 ) {
     public VehicleRequest {
         tripTypes = (tripTypes == null) ? Set.of() : Set.copyOf(tripTypes);

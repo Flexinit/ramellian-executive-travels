@@ -35,7 +35,10 @@ public record VehicleResponse(
         String approvalNotes,
         String reviewedBy,
         ZonedDateTime reviewedAt,
-        boolean booked
+        boolean booked,
+        Integer year,
+        String insurer,
+        String policyNumber
 ) {
 
     public static VehicleResponse from(Vehicle vehicle) {
@@ -70,6 +73,9 @@ public record VehicleResponse(
                 vehicle.getApprovalNotes(),
                 vehicle.getReviewedBy(),
                 vehicle.getReviewedAt(),
-                booked);
+                booked,
+                vehicle.getYear(),
+                vehicle.getInsurer(),
+                vehicle.getPolicyNumber());
     }
 }

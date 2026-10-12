@@ -76,6 +76,9 @@ public class Booking extends AbstractEntity {
     @Column(name = "postponement_count", nullable = false)
     private int postponementCount = 0;
 
+    @Column(name = "passenger_count")
+    private Integer passengerCount;
+
     public void setStatus(String status) {
         this.status = BookingStatus.valueOf(status.trim().toUpperCase());
     }

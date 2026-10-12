@@ -286,6 +286,9 @@ public class VehicleService {
         } else {
             vehicle.setTripTypes(new java.util.HashSet<>());
         }
+        vehicle.setYear(request.year());
+        vehicle.setInsurer(request.insurer() != null ? request.insurer().trim() : null);
+        vehicle.setPolicyNumber(request.policyNumber() != null ? request.policyNumber().trim() : null);
     }
 
     private void ensureOwnerOrManager(Vehicle vehicle, Authentication authentication) {

@@ -153,6 +153,10 @@ public class EmailTemplateService {
     }
 
     public String paymentReceipt(com.ramellian_executive.travels.entity.Payment payment) {
+        return paymentReceipt(payment, false);
+    }
+
+    public String paymentReceipt(com.ramellian_executive.travels.entity.Payment payment, boolean hasPdf) {
         com.ramellian_executive.travels.entity.Booking booking = payment.getBooking();
         com.ramellian_executive.travels.entity.Vehicle vehicle = booking.getVehicle();
         long totalHours = java.time.Duration.between(booking.getStartTime(), booking.getEndTime()).toHours();
@@ -205,7 +209,7 @@ public class EmailTemplateService {
                 <p class="greeting">Hi %s,</p>
                 <p class="text">
                   Your payment for <strong>%s</strong> has been confirmed.
-                  Your receipt is attached to this email as a PDF.
+                  %s
                 </p>
                 <table width="100%%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;">
                   <tr>
@@ -220,7 +224,9 @@ public class EmailTemplateService {
                 %s
                 <p class="hint">Your booking is now confirmed. Please review your booking details in the app.</p>
                 """.formatted(
-                firstName(booking.getUser()), vehicleTitle, receiptNo, chargesTable);
+                firstName(booking.getUser()), vehicleTitle,
+                hasPdf ? "Your receipt is attached to this email as a PDF." : "Your receipt details are shown below.",
+                receiptNo, chargesTable);
 
         return layout("Payment Receipt — " + vehicleTitle, body, "View My Booking", null);
     }

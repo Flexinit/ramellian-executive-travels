@@ -82,6 +82,9 @@ public class User extends AbstractEntity {
     @Column(name = "driving_license_back_url")
     private String drivingLicenseBackUrl;
 
+    @Column(name = "driving_licence_number")
+    private String drivingLicenceNumber;
+
     @Column(name = "phone_number", unique = true)
     private String phoneNumber;
 

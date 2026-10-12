@@ -262,14 +262,79 @@ public class PaymentService {
     }
 
     private String resolveContractText(Booking booking) {
+        Vehicle vehicle = booking.getVehicle();
+        User renter   = booking.getUser();
+        User owner    = vehicle.getOwner();
+
+        // Pickup/dropoff: use booking-specific location if set, else vehicle base location
+        String pickup  = safe(booking.getPickupLocation(),  vehicle.getLocation());
+        String dropoff = safe(booking.getDropoffLocation(), vehicle.getLocation());
+
+        // Owner identity: prefer business name, fall back to personal name
+        String ownerName = owner.getBusinessName() != null && !owner.getBusinessName().isBlank()
+                ? owner.getBusinessName()
+                : fullName(owner);
+
+        String bookedOn = booking.getCreatedAt() != null
+                ? booking.getCreatedAt().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, h:mm a z"))
+                : "—";
+
         return contractTemplateService.resolveFor(booking)
-                .replace("{{BOOKING_ID}}", booking.getId().toString())
-                .replace("{{START_TIME}}", booking.getStartTime().toString())
-                .replace("{{END_TIME}}", booking.getEndTime().toString())
-                .replace("{{BOOKING_MODE}}", booking.getBookingMode().name())
-                .replace("{{RENTER_EMAIL}}", booking.getUser().getEmailAddress())
-                .replace("{{OWNER_EMAIL}}", booking.getVehicle().getOwner().getEmailAddress())
-                .replace("{{VEHICLE_REGISTRATION}}", booking.getVehicle().getRegistrationNumber());
+                // Booking
+                .replace("{{BOOKING_ID}}",           booking.getId().toString())
+                .replace("{{START_TIME}}",            booking.getStartTime().toString())
+                .replace("{{END_TIME}}",              booking.getEndTime().toString())
+                .replace("{{BOOKING_MODE}}",          booking.getBookingMode().name())
+                .replace("{{TRIP_PURPOSE}}",          booking.getTripType() != null ? booking.getTripType().name() : "—")
+                .replace("{{PICKUP_LOCATION}}",       pickup)
+                .replace("{{DROPOFF_LOCATION}}",      dropoff)
+                .replace("{{BOOKED_ON}}",             bookedOn)
+                // Renter
+                .replace("{{RENTER_NAME}}",           fullName(renter))
+                .replace("{{RENTER_EMAIL}}",          safe(renter.getEmailAddress()))
+                .replace("{{RENTER_PHONE}}",          safe(renter.getPhoneNumber()))
+                .replace("{{RENTER_ID_NUMBER}}",      safe(renter.getIdNumber()))
+                .replace("{{RENTER_LOCATION}}",       safe(renter.getLocation()))
+                // Owner
+                .replace("{{OWNER_NAME}}",            ownerName)
+                .replace("{{OWNER_PERSONAL_NAME}}",   fullName(owner))
+                .replace("{{OWNER_BUSINESS_NAME}}",   safe(owner.getBusinessName()))
+                .replace("{{OWNER_KRA_PIN}}",         safe(owner.getBusinessTaxNumber()))
+                .replace("{{OWNER_LOCATION}}",        safe(owner.getBusinessAddress(), owner.getLocation()))
+                .replace("{{OWNER_EMAIL}}",           safe(owner.getEmailAddress()))
+                .replace("{{OWNER_PHONE}}",           safe(owner.getPhoneNumber()))
+                // Vehicle
+                .replace("{{VEHICLE_REGISTRATION}}", safe(vehicle.getRegistrationNumber()))
+                .replace("{{VEHICLE_VIN}}",           safe(vehicle.getVIN()))
+                .replace("{{VEHICLE_MODEL}}",         safe(vehicle.getModel()))
+                .replace("{{VEHICLE_COLOR}}",         safe(vehicle.getColor()))
+                .replace("{{VEHICLE_FUEL_TYPE}}",     safe(vehicle.getFuelType()))
+                .replace("{{VEHICLE_TRANSMISSION}}",  safe(vehicle.getTransmissionType()))
+                .replace("{{VEHICLE_CAPACITY}}",      String.valueOf(vehicle.getCapacity()))
+                .replace("{{VEHICLE_YEAR}}",          vehicle.getYear() != null ? String.valueOf(vehicle.getYear()) : "—")
+                .replace("{{VEHICLE_INSURER}}",       safe(vehicle.getInsurer()))
+                .replace("{{VEHICLE_POLICY_NUMBER}}", safe(vehicle.getPolicyNumber()))
+                // Renter licence & booking extras
+                .replace("{{RENTER_LICENCE_NUMBER}}", safe(renter.getDrivingLicenceNumber()))
+                .replace("{{PASSENGER_COUNT}}",       booking.getPassengerCount() != null ? String.valueOf(booking.getPassengerCount()) : "—");
+    }
+
+    private static String safe(String value) {
+        return (value != null && !value.isBlank()) ? value : "—";
+    }
+
+    private static String safe(String primary, String fallback) {
+        if (primary != null && !primary.isBlank()) return primary;
+        if (fallback != null && !fallback.isBlank()) return fallback;
+        return "—";
+    }
+
+    private static String fullName(User user) {
+        String first  = user.getFirstName()  != null ? user.getFirstName().trim()  : "";
+        String middle = user.getMiddleName() != null ? user.getMiddleName().trim() : "";
+        String last   = user.getLastName()   != null ? user.getLastName().trim()   : "";
+        String name   = (first + " " + middle + " " + last).replaceAll("\\s+", " ").trim();
+        return name.isBlank() ? "—" : name;
     }
 
     private void requireRenter(Booking booking, Authentication authentication) {

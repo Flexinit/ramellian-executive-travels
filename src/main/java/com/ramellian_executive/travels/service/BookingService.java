@@ -129,6 +129,9 @@ public class BookingService {
             booking.setDropoffLocation(request.dropoffLocation().trim());
         }
         booking.setDeliveryRequested(Boolean.TRUE.equals(request.deliveryRequested()));
+        if (request.passengerCount() != null && request.passengerCount() > 0) {
+            booking.setPassengerCount(request.passengerCount());
+        }
         booking.setRenterContactEmail(renter.getEmailAddress());
         booking.setRenterContactPhone(renter.getPhoneNumber());
 

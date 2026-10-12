@@ -218,7 +218,7 @@ public class BotTools {
                 vehicleId, start, end,
                 mode != null ? mode : "SELF_DRIVE",
                 null, null, null,
-                pickup, dropoff, null);
+                pickup, dropoff, null, null);
 
         BookingResponse booking = bookingService.create(request, auth(userEmail));
         return BotToolResult.withBooking(
