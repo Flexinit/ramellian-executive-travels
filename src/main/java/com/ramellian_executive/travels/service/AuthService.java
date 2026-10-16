@@ -4,6 +4,7 @@ import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.ramellian_executive.travels.entity.User;
 import com.ramellian_executive.travels.entity.UserRole;
 import com.ramellian_executive.travels.model.*;
+import com.ramellian_executive.travels.model.FirebasePhoneVerifyRequest;
 import com.ramellian_executive.travels.repository.UserRepository;
 import com.ramellian_executive.travels.repository.UserRoleRepository;
 import com.ramellian_executive.travels.security.GoogleIdTokenVerifierService;
@@ -47,6 +48,8 @@ public class AuthService {
     private final VerificationNotificationService notificationService;
 
     private final GoogleIdTokenVerifierService googleIdTokenVerifier;
+
+    private final FirebaseService firebaseService;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private AuditLogService auditLogService;
@@ -203,7 +206,7 @@ public class AuthService {
         if (auditLogService != null) {
             auditLogService.logAction(email, "AUTH_LOGIN", "USER", user.getId() != null ? user.getId().toString() : null, "User logged in successfully", "SUCCESS");
         }
-        return tokenResponse(userDetailsService.loadUserByUsername(email));
+        return tokenResponse(userDetailsService.loadUserByUsername(email), Boolean.TRUE.equals(request.rememberMe()));
     }
 
 
@@ -223,7 +226,7 @@ public class AuthService {
             auditLogService.logAction(user.getEmailAddress(), "AUTH_2FA_VERIFY", "USER", user.getId() != null ? user.getId().toString() : null, "Two-factor verification successful", "SUCCESS");
         }
 
-        return tokenResponse(userDetailsService.loadUserByUsername(user.getEmailAddress()));
+        return tokenResponse(userDetailsService.loadUserByUsername(user.getEmailAddress()), Boolean.TRUE.equals(request.rememberMe()));
     }
 
     @Transactional
@@ -293,6 +296,31 @@ public class AuthService {
         return tokenResponse(userDetailsService.loadUserByUsername(email));
     }
 
+    @Transactional
+    public void verifyFirebasePhone(FirebasePhoneVerifyRequest request, String authenticatedEmail) {
+        String verifiedPhone = firebaseService.verifyPhoneToken(request.firebaseIdToken());
+
+        User user;
+        if (authenticatedEmail != null && !authenticatedEmail.isBlank()) {
+            user = findUser(authenticatedEmail);
+        } else if (request.email() != null && !request.email().isBlank()) {
+            user = findUser(request.email().trim().toLowerCase());
+        } else {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Provide your email address or be logged in to verify your phone");
+        }
+
+        if (userRepository.findByPhoneNumber(verifiedPhone)
+                .filter(existing -> !existing.getId().equals(user.getId())).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This phone number is already linked to another account");
+        }
+
+        user.setPhoneNumber(verifiedPhone);
+        user.setPhoneVerified(true);
+        userRepository.save(user);
+    }
+
     private User findUser(String email) {
         return userRepository.findByEmailAddressIgnoreCase(email.trim().toLowerCase())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
@@ -319,6 +347,12 @@ public class AuthService {
     }
 
     private AuthResponse tokenResponse(UserDetails userDetails) {
-        return new AuthResponse("Bearer", jwtService.generateToken(userDetails), jwtService.getExpirationMs());
+        return tokenResponse(userDetails, false);
+    }
+
+    private AuthResponse tokenResponse(UserDetails userDetails, boolean rememberMe) {
+        String token = jwtService.generateToken(userDetails, rememberMe);
+        long expiresIn = rememberMe ? jwtService.getRememberMeExpirationMs() : jwtService.getExpirationMs();
+        return new AuthResponse("Bearer", token, expiresIn);
     }
 }

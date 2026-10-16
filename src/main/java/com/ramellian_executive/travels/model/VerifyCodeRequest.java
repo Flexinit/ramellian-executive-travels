@@ -6,9 +6,10 @@ import jakarta.validation.constraints.Size;
 public record VerifyCodeRequest(
         String email,
         String phoneNumber,
-        @NotBlank @Size(min = 6, max = 6) String code
+        @NotBlank @Size(min = 6, max = 6) String code,
+        Boolean rememberMe
 ) {
     public VerifyCodeRequest(String email, String code) {
-        this(email, null, code);
+        this(email, null, code, null);
     }
 }

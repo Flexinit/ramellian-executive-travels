@@ -112,6 +112,15 @@ public class User extends AbstractEntity {
     @Column(name = "email_verified", nullable = false)
     private boolean emailVerified;
 
+    @Column(name = "phone_verified", nullable = false, columnDefinition = "boolean default false")
+    private boolean phoneVerified;
+
+    @Column(name = "signature_file_name")
+    private String signatureFileName;
+
+    @Column(name = "signature_consent_given_at")
+    private java.time.ZonedDateTime signatureConsentGivenAt;
+
     @Column(name = "two_factor_enabled", nullable = false)
     private boolean twoFactorEnabled;
 

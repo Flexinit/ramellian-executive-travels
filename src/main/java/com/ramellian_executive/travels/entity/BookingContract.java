@@ -37,11 +37,31 @@ public class BookingContract extends AbstractEntity {
     @Column(name = "document_hash")
     private String documentHash;
 
+    // renter signing audit
     @Column(name = "signer_ip_address")
     private String signerIpAddress;
 
     @Column(name = "signer_user_agent", length = 1000)
     private String signerUserAgent;
+
+    @Column(name = "renter_signature_file_name")
+    private String renterSignatureFileName;
+
+    // owner signing
+    @Column(name = "owner_signed_at")
+    private ZonedDateTime ownerSignedAt;
+
+    @Column(name = "owner_signed_by")
+    private String ownerSignedBy;
+
+    @Column(name = "owner_signature_file_name")
+    private String ownerSignatureFileName;
+
+    @Column(name = "owner_signer_ip_address")
+    private String ownerSignerIpAddress;
+
+    @Column(name = "owner_signer_user_agent", length = 1000)
+    private String ownerSignerUserAgent;
 
     @Column(name = "reviewed_at")
     private ZonedDateTime reviewedAt;

@@ -1,6 +1,8 @@
 package com.ramellian_executive.travels.security;
 
 import com.ramellian_executive.travels.entity.Booking;
+import com.ramellian_executive.travels.entity.BookingContract;
+import com.ramellian_executive.travels.entity.Disbursement;
 import com.ramellian_executive.travels.entity.Payment;
 import com.ramellian_executive.travels.entity.User;
 import com.ramellian_executive.travels.entity.UserDocument;
@@ -61,6 +63,39 @@ public class VerificationNotificationService {
         String name = EmailTemplateService.firstName(null);
         String html = templates.verificationCode(name, code, purpose);
         send(recipient, "Ramellian " + purpose + " code", html);
+    }
+
+    // ─── Booking — owner (new booking request) ───────────────────────────────
+
+    @Async("notificationTaskExecutor")
+    public void sendBookingCreatedToOwner(Booking booking, double commissionRatePct) {
+        if (booking == null || booking.getVehicle() == null) return;
+        User owner = booking.getVehicle().getOwner();
+        if (owner == null || blank(owner.getEmailAddress())) return;
+        User renter = booking.getUser();
+        if (renter == null) return;
+
+        String vehicleTitle = EmailTemplateService.vehicleTitle(booking.getVehicle());
+        String ownerName = owner.getFirstName() != null ? owner.getFirstName() : "Owner";
+        String renterName = (renter.getFirstName() != null ? renter.getFirstName() : "")
+                + (renter.getLastName() != null ? " " + renter.getLastName() : "");
+        if (renterName.isBlank()) renterName = renter.getEmailAddress();
+
+        String html = "<div style='font-family:sans-serif;max-width:600px;margin:auto'>"
+                + "<h2 style='color:#1a1a2e'>New Booking Request — Action Required</h2>"
+                + "<p>Hi " + ownerName + ",</p>"
+                + "<p><strong>" + renterName.trim() + "</strong> has requested to book your vehicle "
+                + "<strong>" + vehicleTitle + "</strong>.</p>"
+                + "<p>Please log in to review the request and <strong>accept or decline</strong> the booking.</p>"
+                + "<p style='margin:24px 0'>"
+                + "<a href='{{CTA_URL}}' style='background:#1a1a2e;color:#fff;padding:12px 24px;"
+                + "border-radius:6px;text-decoration:none;font-weight:bold'>Review Booking</a>"
+                + "</p>"
+                + "<p style='color:#666;font-size:12px'>Ramellian Executive Travels</p>"
+                + "</div>";
+
+        html = injectCtaUrl(html, frontendUrl + "/owner/bookings");
+        send(owner.getEmailAddress(), "New Booking Request — " + vehicleTitle, html);
     }
 
     // ─── Booking — renter ─────────────────────────────────────────────────────
@@ -202,6 +237,71 @@ public class VerificationNotificationService {
         } catch (Exception e) {
             log.error("Failed to send receipt email to {}: {}", renter.getEmailAddress(), e.getMessage(), e);
         }
+    }
+
+    // ─── Contract — owner sign request ───────────────────────────────────────
+
+    @Async("notificationTaskExecutor")
+    public void sendOwnerContractSignRequest(BookingContract contract) {
+        if (contract == null || contract.getBooking() == null) return;
+        User owner = contract.getBooking().getVehicle().getOwner();
+        if (owner == null || blank(owner.getEmailAddress())) return;
+
+        String vehicleTitle = EmailTemplateService.vehicleTitle(contract.getBooking().getVehicle());
+        String ownerName = owner.getFirstName() != null ? owner.getFirstName() : "Owner";
+        String renterName = contract.getBooking().getUser() != null
+                && contract.getBooking().getUser().getFirstName() != null
+                ? contract.getBooking().getUser().getFirstName() : "The renter";
+
+        String html = "<div style='font-family:sans-serif;max-width:600px;margin:auto'>"
+                + "<h2 style='color:#1a1a2e'>Action Required: Sign Rental Contract</h2>"
+                + "<p>Hi " + ownerName + ",</p>"
+                + "<p>" + renterName + " has signed the rental contract for <strong>"
+                + vehicleTitle + "</strong>.</p>"
+                + "<p>Please log in, review the contract, and add your signature to confirm the booking.</p>"
+                + "<p style='margin:24px 0'>"
+                + "<a href='{{CTA_URL}}' style='background:#1a1a2e;color:#fff;padding:12px 24px;"
+                + "border-radius:6px;text-decoration:none;font-weight:bold'>Review &amp; Sign Contract</a>"
+                + "</p>"
+                + "<p style='color:#666;font-size:12px'>Ramellian Executive Travels</p>"
+                + "</div>";
+
+        html = injectCtaUrl(html, frontendUrl + "/owner/bookings/" + contract.getBooking().getId() + "/contract");
+        send(owner.getEmailAddress(), "Sign Required: Contract for " + vehicleTitle, html);
+    }
+
+    // ─── Disbursement ─────────────────────────────────────────────────────────
+
+    @Async("notificationTaskExecutor")
+    public void sendDisbursementPaid(Disbursement disbursement) {
+        if (disbursement == null || blank(disbursement.getOwnerEmail())) return;
+
+        Booking booking = disbursement.getPayment() != null ? disbursement.getPayment().getBooking() : null;
+        String vehicleTitle = booking != null && booking.getVehicle() != null
+                ? EmailTemplateService.vehicleTitle(booking.getVehicle()) : "your vehicle";
+        String ownerName = disbursement.getOwnerName() != null ? disbursement.getOwnerName().trim() : "Owner";
+        String amount = String.format("KES %.2f", disbursement.getAmount());
+        String ref = disbursement.getReference() != null ? disbursement.getReference() : "—";
+
+        String html = "<div style='font-family:sans-serif;max-width:600px;margin:auto'>"
+                + "<h2 style='color:#1a1a2e'>Payout Processed</h2>"
+                + "<p>Hi " + ownerName + ",</p>"
+                + "<p>Your payout of <strong>" + amount + "</strong> for the rental of "
+                + "<strong>" + vehicleTitle + "</strong> has been processed.</p>"
+                + "<table style='border-collapse:collapse;width:100%'>"
+                + "<tr><td style='padding:8px;border:1px solid #ddd'>Amount</td>"
+                + "<td style='padding:8px;border:1px solid #ddd'><strong>" + amount + "</strong></td></tr>"
+                + "<tr><td style='padding:8px;border:1px solid #ddd'>Reference</td>"
+                + "<td style='padding:8px;border:1px solid #ddd'>" + ref + "</td></tr>"
+                + (disbursement.getNotes() != null && !disbursement.getNotes().isBlank()
+                        ? "<tr><td style='padding:8px;border:1px solid #ddd'>Notes</td>"
+                          + "<td style='padding:8px;border:1px solid #ddd'>" + disbursement.getNotes() + "</td></tr>"
+                        : "")
+                + "</table>"
+                + "<p style='color:#666;font-size:12px;margin-top:24px'>Ramellian Executive Travels</p>"
+                + "</div>";
+
+        send(disbursement.getOwnerEmail(), "Payout Processed — " + vehicleTitle, html);
     }
 
     // ─── Internal helpers ─────────────────────────────────────────────────────

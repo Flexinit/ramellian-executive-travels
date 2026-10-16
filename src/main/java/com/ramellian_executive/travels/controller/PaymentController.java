@@ -54,12 +54,25 @@ public class PaymentController {
 
     @PostMapping(value = "/contracts/{contractId}/sign", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ContractResponse sign(@PathVariable UUID contractId,
-                                 @RequestPart MultipartFile signature,
+                                 @RequestPart(required = false) MultipartFile signature,
+                                 @RequestParam(defaultValue = "false") boolean useSavedSignature,
                                  @RequestParam boolean consent,
+                                 @RequestParam(defaultValue = "false") boolean saveAsProfile,
                                  Authentication authentication,
                                  HttpServletRequest request) {
-        return paymentService.signAgreement(contractId, signature, consent, authentication,
-                request.getRemoteAddr(), request.getHeader("User-Agent"));
+        return paymentService.signAgreement(contractId, signature, useSavedSignature, consent,
+                saveAsProfile, authentication, request.getRemoteAddr(), request.getHeader("User-Agent"));
+    }
+
+    @PostMapping(value = "/contracts/{contractId}/owner-sign", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ContractResponse ownerSign(@PathVariable UUID contractId,
+                                      @RequestPart(required = false) MultipartFile signature,
+                                      @RequestParam(defaultValue = "false") boolean useSavedSignature,
+                                      @RequestParam boolean consent,
+                                      Authentication authentication,
+                                      HttpServletRequest request) {
+        return paymentService.ownerSignAgreement(contractId, signature, useSavedSignature, consent,
+                authentication, request.getRemoteAddr(), request.getHeader("User-Agent"));
     }
 
     @GetMapping("/contracts/{contractId}")

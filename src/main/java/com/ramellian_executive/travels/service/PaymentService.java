@@ -24,6 +24,8 @@ import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import java.io.IOException;
 import java.nio.file.*;
 import java.security.MessageDigest;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 import java.util.HexFormat;
 
@@ -32,30 +34,39 @@ public class PaymentService {
     private final BookingRepository bookingRepository;
     private final PaymentRepository paymentRepository;
     private final BookingContractRepository contractRepository;
+    private final UserRepository userRepository;
     private final ContractTemplateService contractTemplateService;
     private final PlatformSettingsService platformSettingsService;
     private final ReceiptService receiptService;
+    private final UserSignatureService userSignatureService;
     private final com.ramellian_executive.travels.security.VerificationNotificationService notificationService;
+    private final NotificationService appNotificationService;
     private final Path contractDirectory;
     private final boolean manualConfirmationEnabled;
 
     public PaymentService(BookingRepository bookingRepository, PaymentRepository paymentRepository,
                           BookingContractRepository contractRepository,
+                          UserRepository userRepository,
                           @Value("${app.contract.directory:uploads/contracts}") String contractDirectory,
                           ContractTemplateService contractTemplateService,
                           PlatformSettingsService platformSettingsService,
                           ReceiptService receiptService,
+                          UserSignatureService userSignatureService,
                           com.ramellian_executive.travels.security.VerificationNotificationService notificationService,
+                          NotificationService appNotificationService,
                           @Value("${app.payment.manual-confirmation-enabled:false}")
                           boolean manualConfirmationEnabled) {
         this.bookingRepository = bookingRepository;
         this.paymentRepository = paymentRepository;
         this.contractRepository = contractRepository;
+        this.userRepository = userRepository;
         this.contractDirectory = Paths.get(contractDirectory).toAbsolutePath().normalize();
         this.contractTemplateService = contractTemplateService;
         this.platformSettingsService = platformSettingsService;
         this.receiptService = receiptService;
+        this.userSignatureService = userSignatureService;
         this.notificationService = notificationService;
+        this.appNotificationService = appNotificationService;
         this.manualConfirmationEnabled = manualConfirmationEnabled;
     }
 
@@ -160,7 +171,9 @@ public class PaymentService {
     }
 
     @Transactional
-    public ContractResponse signAgreement(UUID contractId, MultipartFile signature, boolean consent,
+    public ContractResponse signAgreement(UUID contractId, MultipartFile signature,
+                                          boolean useSavedSignature, boolean consent,
+                                          boolean saveAsProfile,
                                           Authentication authentication, String ipAddress, String userAgent) {
         BookingContract contract = contractRepository.findById(contractId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Contract not found"));
@@ -175,30 +188,167 @@ public class PaymentService {
         if (contract.getStatus() != ContractStatus.PENDING_SIGNATURE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Contract is not awaiting signature");
         }
-        if (!consent || signature.isEmpty() || signature.getContentType() == null
-                || !signature.getContentType().startsWith("image/")) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "A signature image and signing consent are required");
+        if (!consent) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Signing consent is required");
         }
+
+        User renter = userRepository.findByEmailAddressIgnoreCase(authentication.getName())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+        byte[] signatureBytes;
+        String signatureContentType;
+        if (useSavedSignature) {
+            if (renter.getSignatureFileName() == null || renter.getSignatureConsentGivenAt() == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "No saved signature found. Please save your signature in your profile first");
+            }
+            signatureBytes = userSignatureService.loadBytes(renter);
+            if (signatureBytes == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Saved signature file could not be loaded. Please re-upload your profile signature");
+            }
+            signatureContentType = renter.getSignatureFileName().endsWith(".png") ? "image/png" : "image/jpeg";
+        } else {
+            if (signature == null || signature.isEmpty() || signature.getContentType() == null
+                    || !signature.getContentType().startsWith("image/")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "A signature image is required when not using a saved signature");
+            }
+            try {
+                signatureBytes = signature.getBytes();
+            } catch (IOException ex) {
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not read signature");
+            }
+            signatureContentType = signature.getContentType();
+        }
+
         if (contract.getOriginalFileName() == null) createPdf(contract);
+
         String signedName = contract.getId() + "-signed.pdf";
+        String signerLabel = renter.getFirstName() != null ? renter.getFirstName() : authentication.getName();
+        String signedTimestamp = ZonedDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm z"));
+
         try (PDDocument document = Loader.loadPDF(contractDirectory.resolve(contract.getOriginalFileName()).toFile())) {
-            PDImageXObject image = PDImageXObject.createFromByteArray(document, signature.getBytes(), "signature");
-            try (PDPageContentStream content = new PDPageContentStream(document, document.getPage(0),
+            PDPage lastPage = document.getPage(document.getNumberOfPages() - 1);
+            PDImageXObject image = PDImageXObject.createFromByteArray(document, signatureBytes, "renter-sig");
+            try (PDPageContentStream content = new PDPageContentStream(document, lastPage,
                     PDPageContentStream.AppendMode.APPEND, true, true)) {
-                content.drawImage(image, 72, 100, 180, 70);
+                // renter signature block — bottom left
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 8);
+                content.beginText();
+                content.newLineAtOffset(72, 95);
+                content.showText("Renter: " + signerLabel);
+                content.newLineAtOffset(0, -10);
+                content.showText(signedTimestamp);
+                content.endText();
+                content.drawImage(image, 72, 110, 160, 60);
             }
             document.save(contractDirectory.resolve(signedName).toFile());
         } catch (IOException ex) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
                     "Signed contract could not be stored", ex);
         }
+
         contract.setStatus(ContractStatus.SIGNED);
-        contract.setSignedAt(java.time.ZonedDateTime.now());
+        contract.setSignedAt(ZonedDateTime.now());
         contract.setSignedBy(authentication.getName());
         contract.setSignedFileName(signedName);
         contract.setSignerIpAddress(ipAddress);
         contract.setSignerUserAgent(userAgent);
+        contract.setRenterSignatureFileName(useSavedSignature ? renter.getSignatureFileName() : null);
+        contract.setDocumentHash(hash(contractDirectory.resolve(signedName)));
+        contractRepository.save(contract);
+
+        // Optionally save this drawing as the user's profile signature
+        if (!useSavedSignature && saveAsProfile) {
+            userSignatureService.saveFromContractIfAbsent(renter, signatureBytes, signatureContentType);
+        }
+
+        notifyOwnerToSign(contract);
+
+        return ContractResponse.from(contract);
+    }
+
+    @Transactional
+    public ContractResponse ownerSignAgreement(UUID contractId, MultipartFile signature,
+                                               boolean useSavedSignature, boolean consent,
+                                               Authentication authentication, String ipAddress, String userAgent) {
+        BookingContract contract = contractRepository.findById(contractId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Contract not found"));
+
+        String ownerEmail = contract.getBooking().getVehicle().getOwner().getEmailAddress();
+        if (!ownerEmail.equalsIgnoreCase(authentication.getName())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the vehicle owner can sign as owner");
+        }
+        if (contract.getStatus() != ContractStatus.SIGNED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "The renter must sign first before the owner can sign");
+        }
+        if (contract.getOwnerSignedAt() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Owner has already signed this contract");
+        }
+        if (!consent) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Signing consent is required");
+        }
+
+        User owner = userRepository.findByEmailAddressIgnoreCase(authentication.getName())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+        byte[] signatureBytes;
+        if (useSavedSignature) {
+            if (owner.getSignatureFileName() == null || owner.getSignatureConsentGivenAt() == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "No saved signature found. Please save your signature in your profile first");
+            }
+            signatureBytes = userSignatureService.loadBytes(owner);
+            if (signatureBytes == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Saved signature file could not be loaded. Please re-upload your profile signature");
+            }
+        } else {
+            if (signature == null || signature.isEmpty() || signature.getContentType() == null
+                    || !signature.getContentType().startsWith("image/")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "A signature image is required when not using a saved signature");
+            }
+            try {
+                signatureBytes = signature.getBytes();
+            } catch (IOException ex) {
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not read signature");
+            }
+        }
+
+        String ownerLabel = owner.getFirstName() != null ? owner.getFirstName() : authentication.getName();
+        String signedTimestamp = ZonedDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm z"));
+        String signedName = contract.getSignedFileName(); // append to existing renter-signed PDF
+
+        try (PDDocument document = Loader.loadPDF(contractDirectory.resolve(signedName).toFile())) {
+            PDPage lastPage = document.getPage(document.getNumberOfPages() - 1);
+            PDImageXObject image = PDImageXObject.createFromByteArray(document, signatureBytes, "owner-sig");
+            try (PDPageContentStream content = new PDPageContentStream(document, lastPage,
+                    PDPageContentStream.AppendMode.APPEND, true, true)) {
+                // owner signature block — bottom right
+                content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 8);
+                content.beginText();
+                content.newLineAtOffset(320, 95);
+                content.showText("Owner: " + ownerLabel);
+                content.newLineAtOffset(0, -10);
+                content.showText(signedTimestamp);
+                content.endText();
+                content.drawImage(image, 320, 110, 160, 60);
+            }
+            document.save(contractDirectory.resolve(signedName).toFile());
+        } catch (IOException ex) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Signed contract could not be stored", ex);
+        }
+
+        contract.setStatus(ContractStatus.FULLY_SIGNED);
+        contract.setOwnerSignedAt(ZonedDateTime.now());
+        contract.setOwnerSignedBy(authentication.getName());
+        contract.setOwnerSignerIpAddress(ipAddress);
+        contract.setOwnerSignerUserAgent(userAgent);
+        contract.setOwnerSignatureFileName(useSavedSignature ? owner.getSignatureFileName() : null);
         contract.setDocumentHash(hash(contractDirectory.resolve(signedName)));
         return ContractResponse.from(contractRepository.save(contract));
     }
@@ -335,6 +485,27 @@ public class PaymentService {
         String last   = user.getLastName()   != null ? user.getLastName().trim()   : "";
         String name   = (first + " " + middle + " " + last).replaceAll("\\s+", " ").trim();
         return name.isBlank() ? "—" : name;
+    }
+
+    private void notifyOwnerToSign(BookingContract contract) {
+        try {
+            User owner = contract.getBooking().getVehicle().getOwner();
+            if (owner == null) return;
+            String vehicleTitle = contract.getBooking().getVehicle().getModel() != null
+                    ? contract.getBooking().getVehicle().getModel() : "your vehicle";
+            appNotificationService.createNotification(
+                    owner,
+                    "Action Required: Sign Rental Contract",
+                    "The renter has signed the contract for " + vehicleTitle
+                            + ". Please review and sign it to confirm the booking.",
+                    "CONTRACT_OWNER_SIGN_REQUIRED",
+                    contract.getId(),
+                    "CONTRACT"
+            );
+            notificationService.sendOwnerContractSignRequest(contract);
+        } catch (Exception e) {
+            // notification failure must not roll back the signing
+        }
     }
 
     private void requireRenter(Booking booking, Authentication authentication) {

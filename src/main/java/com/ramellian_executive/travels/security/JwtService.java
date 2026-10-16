@@ -21,15 +21,22 @@ public class JwtService {
 
     private final SecretKey signingKey;
     private final long expirationMs;
+    private final long rememberMeExpirationMs;
 
     public JwtService(
             @Value("${app.jwt.secret}") String secret,
-            @Value("${app.jwt.expiration-ms}") long expirationMs) {
+            @Value("${app.jwt.expiration-ms}") long expirationMs,
+            @Value("${app.jwt.remember-me-expiration-ms:2592000000}") long rememberMeExpirationMs) {
         this.signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirationMs = expirationMs;
+        this.rememberMeExpirationMs = rememberMeExpirationMs;
     }
 
     public String generateToken(UserDetails userDetails) {
+        return generateToken(userDetails, false);
+    }
+
+    public String generateToken(UserDetails userDetails, boolean rememberMe) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("roles", userDetails.getAuthorities().stream()
                 .filter(authority -> authority.getAuthority().startsWith("ROLE_"))
@@ -46,14 +53,19 @@ public class JwtService {
             claims.put("enabled", principal.isEnabled());
         }
 
+        long ttl = rememberMe ? rememberMeExpirationMs : expirationMs;
         Date issuedAt = new Date();
         return Jwts.builder()
                 .claims(claims)
                 .subject(userDetails.getUsername())
                 .issuedAt(issuedAt)
-                .expiration(new Date(issuedAt.getTime() + expirationMs))
+                .expiration(new Date(issuedAt.getTime() + ttl))
                 .signWith(signingKey)
                 .compact();
+    }
+
+    public long getRememberMeExpirationMs() {
+        return rememberMeExpirationMs;
     }
 
     public UUID extractUserId(String token) {

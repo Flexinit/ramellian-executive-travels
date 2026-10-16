@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -87,6 +88,13 @@ public class AuthController {
     @PostMapping("/google")
     public AuthResponse googleSignIn(@Valid @RequestBody GoogleAuthRequest request) {
         return authService.googleSignIn(request);
+    }
+
+    @PostMapping("/verify-firebase-phone")
+    public void verifyFirebasePhone(@Valid @RequestBody FirebasePhoneVerifyRequest request,
+                                    Authentication authentication) {
+        String email = authentication != null ? authentication.getName() : null;
+        authService.verifyFirebasePhone(request, email);
     }
 
 

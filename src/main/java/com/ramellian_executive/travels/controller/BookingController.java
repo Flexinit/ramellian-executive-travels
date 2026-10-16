@@ -1,6 +1,7 @@
 package com.ramellian_executive.travels.controller;
 
 import com.ramellian_executive.travels.model.*;
+import com.ramellian_executive.travels.model.ChangeVehicleRequest;
 import com.ramellian_executive.travels.service.BookingService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -84,5 +85,12 @@ public class BookingController {
                                                         @Valid @RequestBody BookingReturnRequest request,
                                                         Authentication authentication) {
         return ResponseEntity.ok(bookingService.recordReturn(id, request, authentication));
+    }
+
+    @PutMapping("/{id}/change-vehicle")
+    public ResponseEntity<BookingResponse> changeVehicle(@PathVariable UUID id,
+                                                         @Valid @RequestBody ChangeVehicleRequest request,
+                                                         Authentication authentication) {
+        return ResponseEntity.ok(bookingService.changeVehicle(id, request, authentication));
     }
 }

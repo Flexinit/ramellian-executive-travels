@@ -3,6 +3,7 @@ package com.ramellian_executive.travels.service;
 import com.ramellian_executive.travels.entity.*;
 import com.ramellian_executive.travels.model.*;
 
+import com.ramellian_executive.travels.repository.BookingContractRepository;
 import com.ramellian_executive.travels.repository.BookingRepository;
 import com.ramellian_executive.travels.repository.BookingGroupRepository;
 import com.ramellian_executive.travels.repository.UserRepository;
@@ -11,6 +12,7 @@ import com.ramellian_executive.travels.repository.vehicle.VehicleRepository;
 import com.ramellian_executive.travels.repository.PaymentRepository;
 import com.ramellian_executive.travels.service.vehicle.VehicleReviewService;
 import com.ramellian_executive.travels.security.VerificationNotificationService;
+import com.ramellian_executive.travels.service.EmailTemplateService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -37,6 +39,7 @@ public class BookingService {
     private final UserRepository userRepository;
     private final UserDocumentRepository documentRepository;
     private final PaymentRepository paymentRepository;
+    private final BookingContractRepository contractRepository;
     private final VerificationNotificationService notificationService;
     private final NotificationService appNotificationService;
     private final PlatformSettingsService platformSettingsService;
@@ -49,6 +52,7 @@ public class BookingService {
                           VehicleRepository vehicleRepository,
                           UserRepository userRepository, UserDocumentRepository documentRepository,
                           PaymentRepository paymentRepository,
+                          BookingContractRepository contractRepository,
                           VerificationNotificationService notificationService,
                           NotificationService appNotificationService,
                           PlatformSettingsService platformSettingsService,
@@ -59,6 +63,7 @@ public class BookingService {
         this.userRepository = userRepository;
         this.documentRepository = documentRepository;
         this.paymentRepository = paymentRepository;
+        this.contractRepository = contractRepository;
         this.notificationService = notificationService;
         this.appNotificationService = appNotificationService;
         this.platformSettingsService = platformSettingsService;
@@ -161,11 +166,16 @@ public class BookingService {
             }
             User owner = vehicle.getOwner();
             if (owner != null && !owner.getId().equals(renter.getId())) {
-                appNotificationService.createNotification(owner, "New Booking on Your Vehicle",
-                        "A new booking has been placed for " + vehicleTitle + ". Please await confirmation.",
+                appNotificationService.createNotification(owner,
+                        "New Booking Request — Action Required",
+                        "A renter has requested to book " + vehicleTitle
+                                + ". Please review and accept or decline the booking.",
                         "BOOKING_CREATED", savedBooking.getId(), "BOOKING");
             }
         }
+        // Email the owner immediately so they can act quickly
+        notificationService.sendBookingCreatedToOwner(savedBooking,
+                platformSettingsService.getCommissionRatePct());
         List<String> warnings = documentWarnings(renter, mode);
         BookingResponse response = BookingResponse.from(savedBooking,
                 platformSettingsService.getCommissionRatePct(),
@@ -504,6 +514,72 @@ public class BookingService {
             reviewService.create(saved, request.review(), authentication);
         }
         return BookingResponse.from(saved);
+    }
+
+    @Transactional
+    public BookingResponse changeVehicle(UUID bookingId, ChangeVehicleRequest request, Authentication authentication) {
+        Booking booking = find(bookingId);
+        boolean isRenter = booking.getUser().getEmailAddress().equalsIgnoreCase(authentication.getName());
+        boolean isOwner = booking.getVehicle().getOwner().getEmailAddress().equalsIgnoreCase(authentication.getName());
+        boolean isManager = has(authentication, "BOOKING_MANAGE");
+
+        if (!isRenter && !isOwner && !isManager) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the renter, vehicle owner, or a booking manager can change the vehicle");
+        }
+        if (booking.getStatus() != BookingStatus.PENDING && booking.getStatus() != BookingStatus.CONFIRMED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Vehicle can only be changed for PENDING or CONFIRMED bookings");
+        }
+        Vehicle newVehicle = vehicleRepository.findById(request.vehicleId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Vehicle not found"));
+        if (!newVehicle.isAvailable() || newVehicle.getApprovalStatus() != VehicleApprovalStatus.APPROVED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "New vehicle is not available or not approved");
+        }
+        if (bookingRepository.existsOverlappingBooking(newVehicle.getId(), booking.getStartTime(),
+                booking.getEndTime(), RESERVING_STATUSES)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "New vehicle is already booked for this period");
+        }
+        BookingMode mode = booking.getBookingMode();
+        if (mode == BookingMode.SELF_DRIVE && !newVehicle.isSelfDrive()
+                || mode == BookingMode.CHAUFFEURED && !newVehicle.isChauffeured()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "New vehicle does not support the current booking mode (" + mode + ")");
+        }
+
+        // Void existing contract if one exists
+        contractRepository.findByBookingId(bookingId).ifPresent(contract -> {
+            contract.setStatus(ContractStatus.VOID);
+            contractRepository.save(contract);
+        });
+
+        Vehicle oldVehicle = booking.getVehicle();
+        booking.setVehicle(newVehicle);
+        if (request.reason() != null && !request.reason().isBlank()) {
+            String existing = booking.getRenterNotes() != null ? booking.getRenterNotes() + "\n" : "";
+            booking.setRenterNotes(existing + "Vehicle changed: " + request.reason().trim());
+        }
+        Booking saved = bookingRepository.save(booking);
+
+        String oldTitle = EmailTemplateService.vehicleTitle(oldVehicle);
+        String newTitle = EmailTemplateService.vehicleTitle(newVehicle);
+        String changeNote = "Vehicle changed from " + oldTitle + " to " + newTitle
+                + (request.reason() != null && !request.reason().isBlank() ? ". Reason: " + request.reason() : "");
+
+        if (appNotificationService != null) {
+            appNotificationService.createNotification(saved.getUser(),
+                    "Vehicle Updated — " + newTitle,
+                    changeNote,
+                    "BOOKING_VEHICLE_CHANGED", saved.getId(), "BOOKING");
+            User newOwner = newVehicle.getOwner();
+            if (newOwner != null && !newOwner.getId().equals(saved.getUser().getId())) {
+                appNotificationService.createNotification(newOwner,
+                        "Booking Assigned to Your Vehicle — " + newTitle,
+                        "A booking has been reassigned to your vehicle " + newTitle + ".",
+                        "BOOKING_VEHICLE_CHANGED", saved.getId(), "BOOKING");
+            }
+        }
+        return BookingResponse.from(saved, platformSettingsService.getCommissionRatePct()).withoutOwnerPayout();
     }
 
     private boolean validTransition(BookingStatus from, BookingStatus to) {

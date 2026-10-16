@@ -90,7 +90,8 @@
       "mcp__claude_ai_Claude_Docs__update",
       "Bash(./mvnw -B compile -q)",
       "Bash(./mvnw -B compile)",
-      "Bash(./mvnw -B compile test-compile)"
+      "Bash(./mvnw -B compile test-compile)",
+      "WebSearch"
     ]
   }
 }
