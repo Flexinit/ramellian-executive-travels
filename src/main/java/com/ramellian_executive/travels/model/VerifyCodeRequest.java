@@ -12,4 +12,8 @@ public record VerifyCodeRequest(
     public VerifyCodeRequest(String email, String code) {
         this(email, null, code, null);
     }
+
+    public VerifyCodeRequest(String email, String phoneNumber, String code) {
+        this(email, phoneNumber, code, null);
+    }
 }

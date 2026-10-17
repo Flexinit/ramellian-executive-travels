@@ -16,7 +16,7 @@ class JwtServiceTest {
 
     @Test
     void generatesTokenClaimsIncludingIdentityRolesAndPermissions() {
-        JwtService jwtService = new JwtService("this-is-a-very-secure-jwt-secret-key-for-tests-12345", 3600000L);
+        JwtService jwtService = new JwtService("this-is-a-very-secure-jwt-secret-key-for-tests-12345", 3600000L, 2592000000L);
         UUID userId = UUID.randomUUID();
         JwtUserPrincipal principal = new JwtUserPrincipal(
                 userId,

@@ -38,6 +38,7 @@ class BookingServiceTest {
     @Mock UserRepository userRepository;
     @Mock UserDocumentRepository documentRepository;
     @Mock PaymentRepository paymentRepository;
+    @Mock BookingContractRepository contractRepository;
     @Mock com.ramellian_executive.travels.service.vehicle.VehicleReviewService reviewService;
     @Mock VerificationNotificationService notificationService;
     @Mock NotificationService appNotificationService;
@@ -55,7 +56,7 @@ class BookingServiceTest {
         service = new BookingService(
                 bookingRepository, bookingGroupRepository,
                 vehicleRepository, userRepository, documentRepository,
-                paymentRepository,
+                paymentRepository, contractRepository,
                 notificationService, appNotificationService,
                 platformSettingsService, reviewService);
     }
