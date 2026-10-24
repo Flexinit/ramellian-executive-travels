@@ -1,6 +1,8 @@
 package com.ramellian_executive.travels.controller;
 
 import com.ramellian_executive.travels.model.*;
+import com.ramellian_executive.travels.model.ForgotPasswordRequest;
+import com.ramellian_executive.travels.model.ResetPasswordRequest;
 import com.ramellian_executive.travels.repository.UserRepository;
 import com.ramellian_executive.travels.repository.UserRoleRepository;
 import com.ramellian_executive.travels.security.JwtService;
@@ -88,6 +90,20 @@ public class AuthController {
     @PostMapping("/google")
     public AuthResponse googleSignIn(@Valid @RequestBody GoogleAuthRequest request) {
         return authService.googleSignIn(request);
+    }
+
+    @PostMapping("/forgot-password")
+    @Transactional
+    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        authService.forgotPassword(request);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/reset-password")
+    @Transactional
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        authService.resetPassword(request);
+        return ResponseEntity.ok().build();
     }
 
     @PostMapping("/verify-firebase-phone")

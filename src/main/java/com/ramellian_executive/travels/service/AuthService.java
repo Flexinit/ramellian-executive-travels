@@ -5,6 +5,8 @@ import com.ramellian_executive.travels.entity.User;
 import com.ramellian_executive.travels.entity.UserRole;
 import com.ramellian_executive.travels.model.*;
 import com.ramellian_executive.travels.model.FirebasePhoneVerifyRequest;
+import com.ramellian_executive.travels.model.ForgotPasswordRequest;
+import com.ramellian_executive.travels.model.ResetPasswordRequest;
 import com.ramellian_executive.travels.repository.UserRepository;
 import com.ramellian_executive.travels.repository.UserRoleRepository;
 import com.ramellian_executive.travels.security.GoogleIdTokenVerifierService;
@@ -319,6 +321,44 @@ public class AuthService {
         user.setPhoneNumber(verifiedPhone);
         user.setPhoneVerified(true);
         userRepository.save(user);
+    }
+
+    @Transactional
+    public void forgotPassword(ForgotPasswordRequest request) {
+        String email = request.email().trim().toLowerCase();
+        userRepository.findByEmailAddressIgnoreCase(email).ifPresent(user -> {
+            String code = verificationCodeService.generateCode();
+            user.setVerificationCodeHash(verificationCodeService.hash(code));
+            user.setVerificationCodeExpiresAt(ZonedDateTime.now().plusMinutes(codeExpirationMinutes));
+            userRepository.save(user);
+            notificationService.sendPasswordResetEmail(email, code);
+            if (auditLogService != null) {
+                auditLogService.logAction(email, "AUTH_FORGOT_PASSWORD", "USER",
+                        user.getId() != null ? user.getId().toString() : null,
+                        "Password reset code generated", "SUCCESS");
+            }
+        });
+    }
+
+    @Transactional
+    public void resetPassword(ResetPasswordRequest request) {
+        String email = request.email().trim().toLowerCase();
+        User user = userRepository.findByEmailAddressIgnoreCase(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset code"));
+        if (user.getVerificationCodeExpiresAt() == null
+                || user.getVerificationCodeExpiresAt().isBefore(ZonedDateTime.now())
+                || !verificationCodeService.matches(request.code(), user.getVerificationCodeHash())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset code");
+        }
+        user.setPassword(passwordEncoder.encode(request.newPassword()));
+        user.setVerificationCodeHash(null);
+        user.setVerificationCodeExpiresAt(null);
+        userRepository.save(user);
+        if (auditLogService != null) {
+            auditLogService.logAction(email, "AUTH_RESET_PASSWORD", "USER",
+                    user.getId() != null ? user.getId().toString() : null,
+                    "Password reset successfully", "SUCCESS");
+        }
     }
 
     private User findUser(String email) {

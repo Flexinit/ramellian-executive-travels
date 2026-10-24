@@ -65,6 +65,12 @@ public class VerificationNotificationService {
         send(recipient, "Ramellian " + purpose + " code", html);
     }
 
+    @Async("notificationTaskExecutor")
+    public void sendPasswordResetEmail(String recipient, String code) {
+        String html = templates.verificationCode(EmailTemplateService.firstName(null), code, "password reset");
+        send(recipient, "Ramellian password reset code", html);
+    }
+
     // ─── Booking — owner (new booking request) ───────────────────────────────
 
     @Async("notificationTaskExecutor")
