@@ -8,11 +8,15 @@ import com.ramellian_executive.travels.model.VehicleRequest;
 import com.ramellian_executive.travels.model.VehicleResponse;
 import com.ramellian_executive.travels.model.VehicleReviewRequest;
 import com.ramellian_executive.travels.repository.UserRepository;
+import com.ramellian_executive.travels.repository.vehicle.VehiclePhotoRepository;
 import com.ramellian_executive.travels.repository.vehicle.VehicleRepository;
 import com.ramellian_executive.travels.security.VerificationNotificationService;
 import com.ramellian_executive.travels.service.AuditLogService;
 import com.ramellian_executive.travels.service.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -22,29 +26,35 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class VehicleService {
 
     private final VehicleRepository vehicleRepository;
+    private final VehiclePhotoRepository photoRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final VerificationNotificationService emailNotificationService;
     private final AuditLogService auditLogService;
 
     public VehicleService(VehicleRepository vehicleRepository, UserRepository userRepository) {
-        this(vehicleRepository, userRepository, null, null, null);
+        this(vehicleRepository, null, userRepository, null, null, null);
     }
 
     @Autowired
     public VehicleService(VehicleRepository vehicleRepository,
+                          VehiclePhotoRepository photoRepository,
                           UserRepository userRepository,
                           NotificationService notificationService,
                           VerificationNotificationService emailNotificationService,
                           AuditLogService auditLogService) {
         this.vehicleRepository = vehicleRepository;
+        this.photoRepository = photoRepository;
         this.userRepository = userRepository;
         this.notificationService = notificationService;
         this.emailNotificationService = emailNotificationService;
@@ -80,30 +90,32 @@ public class VehicleService {
 
     @Transactional(readOnly = true)
     public List<VehicleResponse> listAvailableVehicles() {
-        return vehicleRepository.findByAvailableTrueAndApprovalStatus(VehicleApprovalStatus.APPROVED)
-                .stream().map(VehicleResponse::from).toList();
+        List<Vehicle> vehicles = vehicleRepository.findByAvailableTrueAndApprovalStatus(VehicleApprovalStatus.APPROVED);
+        Map<UUID, List<String>> photos = photosByVehicleId(vehicles.stream().map(Vehicle::getId).toList());
+        return vehicles.stream().map(v -> VehicleResponse.from(v, false, photos.getOrDefault(v.getId(), List.of()))).toList();
     }
 
     @Transactional(readOnly = true)
     public List<VehicleResponse> listPendingVehicles() {
-        return vehicleRepository.findByApprovalStatusOrderByCreatedAtDesc(VehicleApprovalStatus.PENDING)
-                .stream().map(VehicleResponse::from).toList();
+        List<Vehicle> vehicles = vehicleRepository.findByApprovalStatusOrderByCreatedAtDesc(VehicleApprovalStatus.PENDING);
+        Map<UUID, List<String>> photos = photosByVehicleId(vehicles.stream().map(Vehicle::getId).toList());
+        return vehicles.stream().map(v -> VehicleResponse.from(v, false, photos.getOrDefault(v.getId(), List.of()))).toList();
     }
 
     @Transactional(readOnly = true)
     public List<VehicleResponse> listMyVehicles(Authentication authentication) {
-        return vehicleRepository.findByOwnerEmailAddressIgnoreCaseOrderByCreatedAtDesc(authentication.getName())
-                .stream().map(VehicleResponse::from).toList();
+        List<Vehicle> vehicles = vehicleRepository.findByOwnerEmailAddressIgnoreCaseOrderByCreatedAtDesc(authentication.getName());
+        Map<UUID, List<String>> photos = photosByVehicleId(vehicles.stream().map(Vehicle::getId).toList());
+        return vehicles.stream().map(v -> VehicleResponse.from(v, false, photos.getOrDefault(v.getId(), List.of()))).toList();
     }
 
     @Transactional(readOnly = true)
     public List<VehicleResponse> listAllVehiclesForAdmin(VehicleApprovalStatus status) {
-        if (status != null) {
-            return vehicleRepository.findByApprovalStatusOrderByCreatedAtDesc(status)
-                    .stream().map(VehicleResponse::from).toList();
-        }
-        return vehicleRepository.findAllByOrderByCreatedAtDesc()
-                .stream().map(VehicleResponse::from).toList();
+        List<Vehicle> vehicles = status != null
+                ? vehicleRepository.findByApprovalStatusOrderByCreatedAtDesc(status)
+                : vehicleRepository.findAllByOrderByCreatedAtDesc();
+        Map<UUID, List<String>> photos = photosByVehicleId(vehicles.stream().map(Vehicle::getId).toList());
+        return vehicles.stream().map(v -> VehicleResponse.from(v, false, photos.getOrDefault(v.getId(), List.of()))).toList();
     }
 
     @Transactional
@@ -170,12 +182,12 @@ public class VehicleService {
     }
 
     @Transactional(readOnly = true)
-    public List<VehicleResponse> search(String query, String location, Double minPrice, Double maxPrice,
+    public Page<VehicleResponse> search(String query, String location, Double minPrice, Double maxPrice,
                                         Integer capacity, String fuelType, String transmissionType,
                                         Boolean selfDrive, Boolean chauffeured, UUID ownerId,
                                         java.util.Set<com.ramellian_executive.travels.entity.TripType> tripTypes,
                                         ZonedDateTime startTime, ZonedDateTime endTime,
-                                        String sort) {
+                                        String sort, int page, int size) {
         if ((startTime == null) != (endTime == null)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "startTime and endTime must be provided together");
@@ -188,40 +200,56 @@ public class VehicleService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "maxPrice must be greater than or equal to minPrice");
         }
+
+        Sort dbSort = switch (sort == null ? "recommended" : sort.trim().toLowerCase()) {
+            case "price_asc"    -> Sort.by(Sort.Direction.ASC, "pricePerDay");
+            case "price_desc"   -> Sort.by(Sort.Direction.DESC, "pricePerDay");
+            case "rating_desc"  -> Sort.by(Sort.Direction.DESC, "owner.rating");
+            case "capacity_desc"-> Sort.by(Sort.Direction.DESC, "capacity");
+            case "recommended"  -> Sort.by(Sort.Order.desc("owner.rating"), Sort.Order.asc("pricePerDay"));
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "sort must be recommended, price_asc, price_desc, rating_desc, or capacity_desc");
+        };
+
         java.util.Set<com.ramellian_executive.travels.entity.TripType> resolvedTripTypes =
                 (tripTypes == null || tripTypes.isEmpty()) ? null : tripTypes;
         java.time.ZonedDateTime now = java.time.ZonedDateTime.now();
         java.time.ZonedDateTime effectiveStart = startTime != null ? startTime : now;
-        // When no dates provided use a 24-hour window so same-day bookings show the booked badge
         java.time.ZonedDateTime effectiveEnd = endTime != null ? endTime : now.plusDays(1);
         java.util.Set<java.util.UUID> bookedIds = new java.util.HashSet<>(
                 vehicleRepository.findBookedVehicleIds(
                         List.of(BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ACTIVE),
                         effectiveStart, effectiveEnd));
-        List<VehicleResponse> vehicles = vehicleRepository.search(blankToNull(query),
+
+        Page<Vehicle> vehiclePage = vehicleRepository.search(blankToNull(query),
                 blankToNull(location), minPrice, maxPrice, capacity, blankToNull(fuelType),
                 blankToNull(transmissionType), selfDrive, chauffeured, ownerId, resolvedTripTypes, startTime, endTime,
-                List.of(BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ACTIVE))
-                .stream().map(v -> VehicleResponse.from(v, bookedIds.contains(v.getId()))).toList();
-        return switch (sort == null ? "recommended" : sort.trim().toLowerCase()) {
-            case "price_asc" -> vehicles.stream().sorted(java.util.Comparator.comparing(
-                    VehicleResponse::pricePerDay)).toList();
-            case "price_desc" -> vehicles.stream().sorted(java.util.Comparator.comparing(
-                    VehicleResponse::pricePerDay).reversed()).toList();
-            case "rating_desc" -> vehicles.stream().sorted(java.util.Comparator.comparing(
-                    v -> v.rating() == null ? 0.0 : v.rating(), java.util.Comparator.reverseOrder())).toList();
-            case "capacity_desc" -> vehicles.stream().sorted(java.util.Comparator.comparingInt(
-                    VehicleResponse::capacity).reversed()).toList();
-            case "recommended" -> vehicles.stream().sorted(java.util.Comparator
-                    .comparing((VehicleResponse v) -> v.rating() == null ? 0.0 : v.rating()).reversed()
-                    .thenComparing(VehicleResponse::pricePerDay)).toList();
-            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "sort must be recommended, price_asc, price_desc, rating_desc, or capacity_desc");
-        };
+                List.of(BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ACTIVE),
+                PageRequest.of(page, size, dbSort));
+        Map<UUID, List<String>> photos = photosByVehicleId(
+                vehiclePage.getContent().stream().map(Vehicle::getId).collect(Collectors.toSet()));
+        return vehiclePage.map(v -> VehicleResponse.from(v, bookedIds.contains(v.getId()),
+                photos.getOrDefault(v.getId(), List.of())));
     }
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    /** Batch-fetches photos for a collection of vehicles and groups them by vehicle ID. */
+    private Map<UUID, List<String>> photosByVehicleId(java.util.Collection<UUID> ids) {
+        if (photoRepository == null || ids.isEmpty()) return Map.of();
+        return photoRepository.findByVehicleIdIn(ids).stream()
+                .collect(Collectors.groupingBy(
+                        p -> p.getVehicle().getId(),
+                        Collectors.mapping(p -> p.getUrl(), Collectors.toList())));
+    }
+
+    private List<String> photosFor(UUID vehicleId) {
+        if (photoRepository == null) return List.of();
+        return photoRepository.findByVehicleId(vehicleId).stream()
+                .map(p -> p.getUrl())
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -231,7 +259,7 @@ public class VehicleService {
         boolean booked = vehicleRepository.findBookedVehicleIds(
                 List.of(BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ACTIVE),
                 now, now.plusDays(1)).contains(vehicle.getId());
-        return VehicleResponse.from(vehicle, booked);
+        return VehicleResponse.from(vehicle, booked, photosFor(vehicle.getId()));
     }
 
     @Transactional

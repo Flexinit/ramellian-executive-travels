@@ -14,6 +14,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.data.domain.Page;
+
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Set;
@@ -29,7 +31,7 @@ public class VehicleController {
 
     @GetMapping
     @Operation(summary = "Search and list available approved vehicles")
-    public List<VehicleResponse> listAvailableVehicles(
+    public Page<VehicleResponse> listAvailableVehicles(
             @RequestParam(required = false) String query,
             @RequestParam(required = false) String location,
             @RequestParam(required = false) Double minPrice,
@@ -43,9 +45,11 @@ public class VehicleController {
             @RequestParam(required = false) Set<TripType> tripTypes,
             @RequestParam(required = false) ZonedDateTime startTime,
             @RequestParam(required = false) ZonedDateTime endTime,
-            @RequestParam(defaultValue = "recommended") String sort) {
+            @RequestParam(defaultValue = "recommended") String sort,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
         return vehicleService.search(query, location, minPrice, maxPrice, capacity, fuelType,
-                transmissionType, selfDrive, chauffeured, ownerId, tripTypes, startTime, endTime, sort);
+                transmissionType, selfDrive, chauffeured, ownerId, tripTypes, startTime, endTime, sort, page, size);
     }
 
     @GetMapping("/me")

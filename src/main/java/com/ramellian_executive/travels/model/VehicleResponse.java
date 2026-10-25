@@ -5,6 +5,7 @@ import com.ramellian_executive.travels.entity.Vehicle;
 import com.ramellian_executive.travels.entity.VehicleApprovalStatus;
 
 import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -38,14 +39,19 @@ public record VehicleResponse(
         boolean booked,
         Integer year,
         String insurer,
-        String policyNumber
+        String policyNumber,
+        List<String> photoUrls
 ) {
 
     public static VehicleResponse from(Vehicle vehicle) {
-        return from(vehicle, false);
+        return from(vehicle, false, List.of());
     }
 
     public static VehicleResponse from(Vehicle vehicle, boolean booked) {
+        return from(vehicle, booked, List.of());
+    }
+
+    public static VehicleResponse from(Vehicle vehicle, boolean booked, List<String> photoUrls) {
         return new VehicleResponse(
                 vehicle.getId(),
                 vehicle.getModel(),
@@ -76,6 +82,7 @@ public record VehicleResponse(
                 booked,
                 vehicle.getYear(),
                 vehicle.getInsurer(),
-                vehicle.getPolicyNumber());
+                vehicle.getPolicyNumber(),
+                photoUrls);
     }
 }

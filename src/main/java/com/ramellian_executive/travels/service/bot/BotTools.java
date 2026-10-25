@@ -147,7 +147,8 @@ public class BotTools {
 
         List<VehicleResponse> vehicles = vehicleService.search(
                 null, location, null, null, null, null, null,
-                selfDrive, chauffeured, null, null, start, end, "price_asc");
+                selfDrive, chauffeured, null, null, start, end, "price_asc", 0, 20)
+                .getContent();
 
         if (vehicles.isEmpty()) {
             return BotToolResult.text("No vehicles available for the requested dates and location.");
