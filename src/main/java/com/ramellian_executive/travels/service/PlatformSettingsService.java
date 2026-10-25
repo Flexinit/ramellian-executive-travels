@@ -63,6 +63,24 @@ public class PlatformSettingsService {
         if (request.driverFlatCharge() != null) {
             settings.setDriverFlatCharge(request.driverFlatCharge());
         }
+        if (request.botAssistantEnabled() != null) {
+            settings.setBotAssistantEnabled(request.botAssistantEnabled());
+        }
         return PlatformSettingsResponse.from(repository.save(settings));
+    }
+
+    @Transactional
+    public PlatformSettingsResponse toggleBot(boolean enabled) {
+        PlatformSettings settings = repository.findFirstByOrderByCreatedAtDesc()
+                .orElseGet(PlatformSettings::new);
+        settings.setBotAssistantEnabled(enabled);
+        return PlatformSettingsResponse.from(repository.save(settings));
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isBotAssistantEnabled() {
+        return repository.findFirstByOrderByCreatedAtDesc()
+                .map(PlatformSettings::isBotAssistantEnabled)
+                .orElse(true);
     }
 }

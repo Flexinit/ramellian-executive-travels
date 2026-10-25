@@ -21,4 +21,7 @@ public class PlatformSettings extends AbstractEntity {
 
     @Column(name = "driver_flat_charge", nullable = false)
     private double driverFlatCharge = 0.0;
+
+    @Column(name = "bot_assistant_enabled", nullable = false)
+    private boolean botAssistantEnabled = true;
 }

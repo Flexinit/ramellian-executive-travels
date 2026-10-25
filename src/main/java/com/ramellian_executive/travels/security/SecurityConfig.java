@@ -106,8 +106,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/v1/booking-policies/platform").access(superAdminOr("hasAuthority('BOOKING_MANAGE')"))
                         .requestMatchers(HttpMethod.GET, "/api/v1/booking-policies/owner").access(superAdminOr("hasAuthority('VEHICLE_UPDATE')"))
                         .requestMatchers(HttpMethod.PUT, "/api/v1/booking-policies/owner").access(superAdminOr("hasAuthority('VEHICLE_UPDATE')"))
-                        .requestMatchers(HttpMethod.GET, "/api/v1/platform-settings/commission").authenticated()
-                        .requestMatchers(HttpMethod.PUT, "/api/v1/platform-settings/commission").hasRole("SUPER_ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/platform-settings").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/platform-settings").hasRole("SUPER_ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/platform-settings/bot").hasRole("SUPER_ADMIN")
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) -> {

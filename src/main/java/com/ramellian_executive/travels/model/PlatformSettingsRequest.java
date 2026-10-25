@@ -8,5 +8,6 @@ public record PlatformSettingsRequest(
         @NotNull @DecimalMin("0.0") @DecimalMax("100.0") Double commissionRatePct,
         @DecimalMin("0.0") @DecimalMax("100.0") Double pesapalTransactionFeeRatePct,
         @DecimalMin("0.0") Double deliveryFlatFee,
-        @DecimalMin("0.0") Double driverFlatCharge
+        @DecimalMin("0.0") Double driverFlatCharge,
+        Boolean botAssistantEnabled
 ) {}

@@ -7,6 +7,7 @@ import com.ramellian_executive.travels.entity.Payment;
 import com.ramellian_executive.travels.event.PaymentConfirmedEvent;
 import com.ramellian_executive.travels.repository.BotSessionRepository;
 import com.ramellian_executive.travels.repository.UserRepository;
+import com.ramellian_executive.travels.service.PlatformSettingsService;
 import com.ramellian_executive.travels.service.ReceiptService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +37,7 @@ public class BotService {
     private final ReceiptService receiptService;
     private final BaileysBotClient baileysClient;
     private final ObjectMapper objectMapper;
+    private final PlatformSettingsService platformSettingsService;
 
     @Value("${app.frontend.url:http://localhost:5173}")
     private String frontendUrl;
@@ -46,7 +48,8 @@ public class BotService {
     public BotService(GroqClient groqClient, BotTools botTools,
                       BotSessionRepository sessionRepository,
                       UserRepository userRepository, ReceiptService receiptService,
-                      BaileysBotClient baileysClient, ObjectMapper objectMapper) {
+                      BaileysBotClient baileysClient, ObjectMapper objectMapper,
+                      PlatformSettingsService platformSettingsService) {
         this.groqClient = groqClient;
         this.botTools = botTools;
         this.sessionRepository = sessionRepository;
@@ -54,6 +57,7 @@ public class BotService {
         this.receiptService = receiptService;
         this.baileysClient = baileysClient;
         this.objectMapper = objectMapper;
+        this.platformSettingsService = platformSettingsService;
     }
 
     // ── Public API ─────────────────────────────────────────────────────────────
@@ -62,6 +66,10 @@ public class BotService {
 
     @Transactional
     public BotResponse processMessage(String channelId, String channel, String incomingText) {
+        if (!platformSettingsService.isBotAssistantEnabled()) {
+            return new BotResponse("The assistant is currently unavailable. Please contact support directly.", List.of());
+        }
+
         BotSession session = loadOrCreate(channelId, channel);
 
         if (session.getUserEmail() == null) {

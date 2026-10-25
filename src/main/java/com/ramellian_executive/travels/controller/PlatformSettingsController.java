@@ -1,5 +1,6 @@
 package com.ramellian_executive.travels.controller;
 
+import com.ramellian_executive.travels.model.BotAssistantToggleRequest;
 import com.ramellian_executive.travels.model.PlatformSettingsRequest;
 import com.ramellian_executive.travels.model.PlatformSettingsResponse;
 import com.ramellian_executive.travels.service.PlatformSettingsService;
@@ -15,13 +16,18 @@ public class PlatformSettingsController {
 
     private final PlatformSettingsService platformSettingsService;
 
-    @GetMapping("/commission")
+    @GetMapping
     public ResponseEntity<PlatformSettingsResponse> get() {
         return ResponseEntity.ok(platformSettingsService.get());
     }
 
-    @PutMapping("/commission")
+    @PutMapping
     public ResponseEntity<PlatformSettingsResponse> set(@Valid @RequestBody PlatformSettingsRequest request) {
         return ResponseEntity.ok(platformSettingsService.set(request));
+    }
+
+    @PutMapping("/bot")
+    public ResponseEntity<PlatformSettingsResponse> toggleBot(@Valid @RequestBody BotAssistantToggleRequest request) {
+        return ResponseEntity.ok(platformSettingsService.toggleBot(request.enabled()));
     }
 }
