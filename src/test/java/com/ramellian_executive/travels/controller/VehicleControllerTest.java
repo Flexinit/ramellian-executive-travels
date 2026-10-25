@@ -10,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.security.core.Authentication;
 
 import java.util.List;
@@ -29,10 +30,10 @@ class VehicleControllerTest {
 
     @Test
     void listVehiclesDelegatesToService() {
-        when(vehicleService.search(null, null, null, null, null, null, null, null, null, null, null, null, null, "recommended"))
-                .thenReturn(List.of());
+        when(vehicleService.search(null, null, null, null, null, null, null, null, null, null, null, null, null, "recommended", 0, 20))
+                .thenReturn(new PageImpl<>(List.of()));
 
-        assertEquals(0, vehicleController.listAvailableVehicles(null, null, null, null, null, null, null, null, null, null, null, null, null, "recommended").size());
+        assertEquals(0, vehicleController.listAvailableVehicles(null, null, null, null, null, null, null, null, null, null, null, null, null, "recommended", 0, 20).getContent().size());
     }
 
     @Test

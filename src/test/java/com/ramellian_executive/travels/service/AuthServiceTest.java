@@ -155,7 +155,7 @@ class AuthServiceTest {
         user.setEmailVerified(true);
         when(userRepository.findByEmailAddressIgnoreCase("person@example.com")).thenReturn(Optional.of(user));
         when(userDetailsService.loadUserByUsername("person@example.com")).thenReturn(userDetails);
-        when(jwtService.generateToken(userDetails)).thenReturn("jwt");
+        when(jwtService.generateToken(userDetails, false)).thenReturn("jwt");
         when(jwtService.getExpirationMs()).thenReturn(3600000L);
 
         AuthResponse response = authService.login(new LoginRequest("person@example.com", "password123"));

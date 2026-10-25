@@ -312,7 +312,7 @@ class BookingServiceTest {
         }
 
         @Test
-        void noEmailNotificationsOnCreation() {
+        void ownerEmailNotificationSentOnCreation() {
             UUID vId = UUID.randomUUID();
             User owner = user("owner@test.com");
             User renter = user("renter@test.com");
@@ -327,7 +327,7 @@ class BookingServiceTest {
             service.create(new BookingRequest(vId, start, start.plusDays(2),
                     "SELF_DRIVE", TripType.GENERAL, "Notes", null), authentication);
 
-            verifyNoInteractions(notificationService);
+            verify(notificationService).sendBookingCreatedToOwner(any(), anyDouble());
         }
     }
 

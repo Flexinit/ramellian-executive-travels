@@ -7,6 +7,7 @@ import com.ramellian_executive.travels.model.VehicleRequest;
 import com.ramellian_executive.travels.model.VehicleResponse;
 import com.ramellian_executive.travels.model.VehicleReviewRequest;
 import com.ramellian_executive.travels.repository.UserRepository;
+import com.ramellian_executive.travels.repository.vehicle.VehiclePhotoRepository;
 import com.ramellian_executive.travels.repository.vehicle.VehicleRepository;
 import com.ramellian_executive.travels.security.VerificationNotificationService;
 import com.ramellian_executive.travels.service.vehicle.VehicleService;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -30,6 +32,7 @@ import static org.mockito.Mockito.*;
 class VehicleServiceTest {
 
     @Mock VehicleRepository vehicleRepository;
+    @Mock VehiclePhotoRepository photoRepository;
     @Mock UserRepository userRepository;
     @Mock NotificationService notificationService;
     @Mock VerificationNotificationService emailNotificationService;
@@ -40,7 +43,7 @@ class VehicleServiceTest {
 
     @BeforeEach
     void setUp() {
-        vehicleService = new VehicleService(vehicleRepository, userRepository, notificationService, emailNotificationService, auditLogService);
+        vehicleService = new VehicleService(vehicleRepository, photoRepository, userRepository, notificationService, emailNotificationService, auditLogService);
     }
 
     @Test
@@ -288,16 +291,17 @@ class VehicleServiceTest {
         vehicle.setApprovalStatus(VehicleApprovalStatus.APPROVED);
         vehicle.setOwner(owner);
 
+        when(vehicleRepository.findBookedVehicleIds(any(), any(), any())).thenReturn(List.of());
         when(vehicleRepository.search(
                 eq("Toyota"), eq("Nairobi"), eq(100.0), eq(200.0), eq(5),
                 eq("PETROL"), eq("AUTOMATIC"), eq(true), eq(false), isNull(),
-                isNull(), isNull(), isNull(), any()))
-                .thenReturn(java.util.List.of(vehicle));
+                isNull(), isNull(), isNull(), any(), any()))
+                .thenReturn(new PageImpl<>(List.of(vehicle)));
 
         java.util.List<VehicleResponse> results = vehicleService.search(
                 "Toyota", "Nairobi", 100.0, 200.0, 5,
                 "PETROL", "AUTOMATIC", true, false, null,
-                null, null, null, "price_asc");
+                null, null, null, "price_asc", 0, 20).getContent();
 
         assertEquals(1, results.size());
         assertEquals("Toyota Land Cruiser", results.get(0).model());
@@ -319,16 +323,17 @@ class VehicleServiceTest {
         vehicle.setApprovalStatus(VehicleApprovalStatus.APPROVED);
         vehicle.setOwner(owner);
 
+        when(vehicleRepository.findBookedVehicleIds(any(), any(), any())).thenReturn(List.of());
         when(vehicleRepository.search(
                 isNull(), isNull(), isNull(), isNull(), isNull(),
                 isNull(), isNull(), isNull(), isNull(), eq(ownerId),
-                isNull(), isNull(), isNull(), any()))
-                .thenReturn(java.util.List.of(vehicle));
+                isNull(), isNull(), isNull(), any(), any()))
+                .thenReturn(new PageImpl<>(List.of(vehicle)));
 
         java.util.List<VehicleResponse> results = vehicleService.search(
                 null, null, null, null, null,
                 null, null, null, null, ownerId,
-                null, null, null, "recommended");
+                null, null, null, "recommended", 0, 20).getContent();
 
         assertEquals(1, results.size());
         assertEquals("Toyota RAV4", results.get(0).model());

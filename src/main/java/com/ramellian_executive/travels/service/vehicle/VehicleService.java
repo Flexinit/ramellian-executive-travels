@@ -201,12 +201,14 @@ public class VehicleService {
                     "maxPrice must be greater than or equal to minPrice");
         }
 
+        // All sort properties must be Vehicle-own fields. PostgreSQL rejects ORDER BY on
+        // columns not in the SELECT list when the query uses SELECT DISTINCT.
         Sort dbSort = switch (sort == null ? "recommended" : sort.trim().toLowerCase()) {
             case "price_asc"    -> Sort.by(Sort.Direction.ASC, "pricePerDay");
             case "price_desc"   -> Sort.by(Sort.Direction.DESC, "pricePerDay");
-            case "rating_desc"  -> Sort.by(Sort.Direction.DESC, "owner.rating");
+            case "rating_desc"  -> Sort.by(Sort.Direction.DESC, "rating");
             case "capacity_desc"-> Sort.by(Sort.Direction.DESC, "capacity");
-            case "recommended"  -> Sort.by(Sort.Order.desc("owner.rating"), Sort.Order.asc("pricePerDay"));
+            case "recommended"  -> Sort.by(Sort.Order.desc("rating"), Sort.Order.asc("pricePerDay"));
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "sort must be recommended, price_asc, price_desc, rating_desc, or capacity_desc");
         };
