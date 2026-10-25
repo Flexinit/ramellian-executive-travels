@@ -175,10 +175,10 @@ public class BookingService {
         }
         // Email the owner immediately so they can act quickly
         notificationService.sendBookingCreatedToOwner(savedBooking,
-                platformSettingsService.getCommissionRatePct());
+                commissionRateFor(savedBooking));
         List<String> warnings = documentWarnings(renter, mode);
         BookingResponse response = BookingResponse.from(savedBooking,
-                platformSettingsService.getCommissionRatePct(),
+                commissionRateFor(savedBooking),
                 platformSettingsService.getPesapalTransactionFeeRatePct(),
                 platformSettingsService.getDeliveryFlatFee(),
                 platformSettingsService.getDriverFlatCharge()).withoutOwnerPayout();
@@ -209,18 +209,25 @@ public class BookingService {
         return s == null || s.isBlank();
     }
 
+    private double commissionRateFor(Booking booking) {
+        if (booking.getStartTime() == null || booking.getEndTime() == null) {
+            return platformSettingsService.getCommissionRatePct();
+        }
+        long hours = java.time.Duration.between(booking.getStartTime(), booking.getEndTime()).toHours();
+        long days = Math.max(1, (hours + 23) / 24);
+        return platformSettingsService.getCommissionRatePct(days);
+    }
+
     @Transactional(readOnly = true)
     public List<BookingResponse> mine(Authentication authentication) {
-        double rate = platformSettingsService.getCommissionRatePct();
         return bookingRepository.findByUserEmailAddressIgnoreCaseOrderByStartTimeDesc(authentication.getName())
-                .stream().map(b -> BookingResponse.from(b, rate).withoutOwnerPayout()).toList();
+                .stream().map(b -> BookingResponse.from(b, commissionRateFor(b)).withoutOwnerPayout()).toList();
     }
 
     @Transactional(readOnly = true)
     public List<BookingResponse> forOwner(Authentication authentication) {
-        double rate = platformSettingsService.getCommissionRatePct();
         return bookingRepository.findByVehicleOwnerEmailAddressIgnoreCaseOrderByStartTimeDesc(authentication.getName())
-                .stream().map(b -> BookingResponse.from(b, rate)).toList();
+                .stream().map(b -> BookingResponse.from(b, commissionRateFor(b))).toList();
     }
 
     @Transactional(readOnly = true)
@@ -232,7 +239,7 @@ public class BookingService {
         if (!renter && !owner && !manager) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot access this booking");
         }
-        BookingResponse response = BookingResponse.from(booking, platformSettingsService.getCommissionRatePct());
+        BookingResponse response = BookingResponse.from(booking, commissionRateFor(booking));
         return (owner || manager) ? response : response.withoutOwnerPayout();
     }
 
@@ -350,9 +357,8 @@ public class BookingService {
 
     private List<BookingResponse> toResponses(List<Booking> bookings, boolean includeOwnerPayout,
                                               java.util.Map<UUID, Payment> paymentByBooking) {
-        double rate = platformSettingsService.getCommissionRatePct();
         return bookings.stream().map(b -> {
-            BookingResponse r = BookingResponse.from(b, rate);
+            BookingResponse r = BookingResponse.from(b, commissionRateFor(b));
             Payment p = paymentByBooking.get(b.getId());
             if (p != null) {
                 r = r.withActualPaymentValues(
@@ -410,7 +416,7 @@ public class BookingService {
             notificationService.sendBookingCreatedToRenter(savedBooking, warnings);
             if (veh != null && veh.getOwner() != null
                     && !veh.getOwner().getId().equals(savedBooking.getUser().getId())) {
-                notificationService.sendBookingNotification(savedBooking, platformSettingsService.getCommissionRatePct());
+                notificationService.sendBookingNotification(savedBooking, commissionRateFor(savedBooking));
             }
             for (User admin : userRepository.findByRoles_RoleName("SUPER_ADMIN")) {
                 notificationService.sendBookingCreatedToAdmin(savedBooking, admin);
@@ -419,7 +425,7 @@ public class BookingService {
                 notificationService.sendBookingCreatedToAdmin(savedBooking, admin);
             }
         }
-        return BookingResponse.from(savedBooking, platformSettingsService.getCommissionRatePct());
+        return BookingResponse.from(savedBooking, commissionRateFor(savedBooking));
     }
 
     @Transactional
@@ -455,7 +461,7 @@ public class BookingService {
         long totalHours = Duration.between(request.startTime(), request.endTime()).toHours();
         long days = Math.max(1, (totalHours + 23) / 24);
         BigDecimal base = BigDecimal.valueOf(vehicle.getPricePerDay()).multiply(BigDecimal.valueOf(days));
-        BigDecimal commissionRate = BigDecimal.valueOf(platformSettingsService.getCommissionRatePct()).divide(BigDecimal.valueOf(100));
+        BigDecimal commissionRate = BigDecimal.valueOf(platformSettingsService.getCommissionRatePct(days)).divide(BigDecimal.valueOf(100));
         BigDecimal fee = base.multiply(commissionRate).setScale(2, java.math.RoundingMode.HALF_UP);
         BigDecimal txFeeRate = BigDecimal.valueOf(platformSettingsService.getPesapalTransactionFeeRatePct()).divide(BigDecimal.valueOf(100));
         BigDecimal txFee = base.multiply(txFeeRate).setScale(2, java.math.RoundingMode.HALF_UP);
@@ -579,7 +585,7 @@ public class BookingService {
                         "BOOKING_VEHICLE_CHANGED", saved.getId(), "BOOKING");
             }
         }
-        return BookingResponse.from(saved, platformSettingsService.getCommissionRatePct()).withoutOwnerPayout();
+        return BookingResponse.from(saved, commissionRateFor(saved)).withoutOwnerPayout();
     }
 
     private boolean validTransition(BookingStatus from, BookingStatus to) {

@@ -10,6 +10,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -56,6 +57,30 @@ public class PesapalClient {
         Map<String, Object> order = post(baseUrl + "/api/Transactions/SubmitOrderRequest", token, body);
         return new PesapalOrder(required(order, "order_tracking_id"),
                 required(order, "redirect_url"));
+    }
+
+    public PesapalDisbursementBatch disburse(String uniqueId, String msisdn, String name,
+                                              double amount, String narration) {
+        ensureConfigured();
+        String token = fetchToken();
+        Map<String, Object> body = Map.of(
+                "transactions", List.of(Map.of(
+                        "unique_id", uniqueId,
+                        "msisdn", msisdn,
+                        "name", name,
+                        "amount", amount,
+                        "narration", narration)));
+        Map<String, Object> resp = post(baseUrl + "/api/Disbursements/RequestDisbursement", token, body);
+        return new PesapalDisbursementBatch(required(resp, "batch_number"));
+    }
+
+    public PesapalDisbursementStatus getDisbursementStatus(String batchNumber) {
+        ensureConfigured();
+        String token = fetchToken();
+        Map<String, Object> resp = get(
+                baseUrl + "/api/Disbursements/GetDisbursementStatus?batchNumber=" + batchNumber, token);
+        String status = String.valueOf(resp.getOrDefault("status", "UNKNOWN")).trim().toUpperCase();
+        return new PesapalDisbursementStatus(batchNumber, status);
     }
 
     public PesapalTransaction status(String trackingId) {
@@ -123,4 +148,6 @@ public class PesapalClient {
 
     public record PesapalOrder(String trackingId, String redirectUrl) {}
     public record PesapalTransaction(int statusCode, String description, String receipt) {}
+    public record PesapalDisbursementBatch(String batchNumber) {}
+    public record PesapalDisbursementStatus(String batchNumber, String status) {}
 }

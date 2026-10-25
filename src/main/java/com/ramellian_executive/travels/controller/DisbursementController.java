@@ -48,4 +48,9 @@ public class DisbursementController {
                                            Authentication authentication) {
         return disbursementService.markFailed(id, request, authentication);
     }
+
+    @PostMapping("/{id}/sync")
+    public DisbursementResponse sync(@PathVariable UUID id, Authentication authentication) {
+        return disbursementService.syncStatus(id, authentication);
+    }
 }

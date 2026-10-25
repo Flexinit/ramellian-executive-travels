@@ -4,6 +4,7 @@ import com.ramellian_executive.travels.entity.PlatformSettings;
 import com.ramellian_executive.travels.model.PlatformSettingsRequest;
 import com.ramellian_executive.travels.model.PlatformSettingsResponse;
 import com.ramellian_executive.travels.repository.PlatformSettingsRepository;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,11 +22,28 @@ public class PlatformSettingsService {
                 .orElseGet(PlatformSettingsResponse::defaults);
     }
 
+    @PostConstruct
+    @Transactional
+    public void seedDefaults() {
+        if (repository.findFirstByOrderByCreatedAtDesc().isEmpty()) {
+            repository.save(new PlatformSettings());
+        }
+    }
+
     @Transactional(readOnly = true)
     public double getCommissionRatePct() {
         return repository.findFirstByOrderByCreatedAtDesc()
                 .map(PlatformSettings::getCommissionRatePct)
-                .orElse(2.0);
+                .orElse(15.0);
+    }
+
+    @Transactional(readOnly = true)
+    public double getCommissionRatePct(long days) {
+        PlatformSettings s = repository.findFirstByOrderByCreatedAtDesc().orElse(null);
+        if (s == null) return days >= 2 ? 10.0 : 15.0;
+        return days >= s.getMultiDayThresholdDays()
+                ? s.getMultiDayCommissionRatePct()
+                : s.getCommissionRatePct();
     }
 
     @Transactional(readOnly = true)
@@ -54,6 +72,12 @@ public class PlatformSettingsService {
         PlatformSettings settings = repository.findFirstByOrderByCreatedAtDesc()
                 .orElseGet(PlatformSettings::new);
         settings.setCommissionRatePct(request.commissionRatePct());
+        if (request.multiDayCommissionRatePct() != null) {
+            settings.setMultiDayCommissionRatePct(request.multiDayCommissionRatePct());
+        }
+        if (request.multiDayThresholdDays() != null && request.multiDayThresholdDays() >= 1) {
+            settings.setMultiDayThresholdDays(request.multiDayThresholdDays());
+        }
         if (request.pesapalTransactionFeeRatePct() != null) {
             settings.setPesapalTransactionFeeRatePct(request.pesapalTransactionFeeRatePct());
         }
