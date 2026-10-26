@@ -350,7 +350,11 @@ public class PaymentService {
         contract.setOwnerSignerUserAgent(userAgent);
         contract.setOwnerSignatureFileName(useSavedSignature ? owner.getSignatureFileName() : null);
         contract.setDocumentHash(hash(contractDirectory.resolve(signedName)));
-        return ContractResponse.from(contractRepository.save(contract));
+        BookingContract saved = contractRepository.save(contract);
+
+        notificationService.sendFullySignedContractCopies(saved, contractDirectory);
+
+        return ContractResponse.from(saved);
     }
 
     @Transactional(readOnly = true)

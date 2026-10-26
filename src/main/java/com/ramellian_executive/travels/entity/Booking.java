@@ -79,6 +79,9 @@ public class Booking extends AbstractEntity {
     @Column(name = "passenger_count")
     private Integer passengerCount;
 
+    @Column(name = "pickup_reminder_sent_at")
+    private ZonedDateTime pickupReminderSentAt;
+
     public void setStatus(String status) {
         this.status = BookingStatus.valueOf(status.trim().toUpperCase());
     }

@@ -64,4 +64,14 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
                                                @Param("endTime") ZonedDateTime endTime,
                                                @Param("activeStatuses") List<BookingStatus> activeStatuses,
                                                @Param("excludeId") UUID excludeId);
+
+    @Query("""
+            select b from Booking b
+            where b.status = com.ramellian_executive.travels.entity.BookingStatus.CONFIRMED
+              and b.startTime >= :from
+              and b.startTime <= :to
+              and b.pickupReminderSentAt is null
+            """)
+    List<Booking> findConfirmedBookingsDueSoon(@Param("from") ZonedDateTime from,
+                                               @Param("to") ZonedDateTime to);
 }

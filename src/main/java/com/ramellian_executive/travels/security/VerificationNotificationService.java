@@ -118,6 +118,58 @@ public class VerificationNotificationService {
              "Booking Confirmed — " + EmailTemplateService.vehicleTitle(booking.getVehicle()), html);
     }
 
+    @Async("notificationTaskExecutor")
+    public void sendPickupReminder(Booking booking) {
+        if (booking == null || booking.getUser() == null) return;
+        User renter = booking.getUser();
+        if (blank(renter.getEmailAddress())) return;
+
+        String vehicleTitle = EmailTemplateService.vehicleTitle(booking.getVehicle());
+        String pickupTime = booking.getStartTime() != null
+                ? booking.getStartTime().toLocalDateTime().toString().replace("T", " at ").substring(0, 19)
+                : "your scheduled time";
+        String html = "<div style='font-family:sans-serif;max-width:600px;margin:auto'>"
+                + "<h2 style='color:#1a1a2e'>Pickup Reminder — " + vehicleTitle + "</h2>"
+                + "<p>Hi " + (renter.getFirstName() != null ? renter.getFirstName() : "there") + ",</p>"
+                + "<p>This is a friendly reminder that your booking for <strong>" + vehicleTitle
+                + "</strong> is due for pickup at <strong>" + pickupTime + "</strong>.</p>"
+                + "<p>Please proceed to collect the vehicle so pickup can be recorded. "
+                + "If you need to reach the owner, check your booking details.</p>"
+                + "<p><a href='" + frontendUrl + "/bookings/" + booking.getId()
+                + "' style='background:#1a1a2e;color:#fff;padding:10px 20px;border-radius:4px;"
+                + "text-decoration:none;display:inline-block'>View Booking</a></p>"
+                + "<p style='color:#666;font-size:12px'>Ramellian Executive Travels</p>"
+                + "</div>";
+        send(renter.getEmailAddress(), "Pickup Reminder — " + vehicleTitle, html);
+    }
+
+    @Async("notificationTaskExecutor")
+    public void sendPickupReminderToOwner(Booking booking) {
+        if (booking == null || booking.getVehicle() == null) return;
+        User owner = booking.getVehicle().getOwner();
+        if (owner == null || blank(owner.getEmailAddress())) return;
+
+        String vehicleTitle = EmailTemplateService.vehicleTitle(booking.getVehicle());
+        String renterName = booking.getUser() != null && booking.getUser().getFirstName() != null
+                ? booking.getUser().getFirstName() : "A renter";
+        String pickupTime = booking.getStartTime() != null
+                ? booking.getStartTime().toLocalDateTime().toString().replace("T", " at ").substring(0, 19)
+                : "the scheduled time";
+        String html = "<div style='font-family:sans-serif;max-width:600px;margin:auto'>"
+                + "<h2 style='color:#1a1a2e'>Pickup Reminder — " + vehicleTitle + "</h2>"
+                + "<p>Hi " + (owner.getFirstName() != null ? owner.getFirstName() : "there") + ",</p>"
+                + "<p><strong>" + renterName + "</strong> is scheduled to pick up <strong>" + vehicleTitle
+                + "</strong> at <strong>" + pickupTime + "</strong>.</p>"
+                + "<p>Please ensure the vehicle is ready and available for handover. "
+                + "Once the renter collects the vehicle, record the pickup to activate the booking.</p>"
+                + "<p><a href='" + frontendUrl + "/owner/bookings/" + booking.getId()
+                + "' style='background:#1a1a2e;color:#fff;padding:10px 20px;border-radius:4px;"
+                + "text-decoration:none;display:inline-block'>Record Pickup</a></p>"
+                + "<p style='color:#666;font-size:12px'>Ramellian Executive Travels</p>"
+                + "</div>";
+        send(owner.getEmailAddress(), "Upcoming Pickup — " + vehicleTitle, html);
+    }
+
     // ─── Booking — owner ──────────────────────────────────────────────────────
 
     @Async("notificationTaskExecutor")
@@ -242,6 +294,67 @@ public class VerificationNotificationService {
             mailSender.send(mime);
         } catch (Exception e) {
             log.error("Failed to send receipt email to {}: {}", renter.getEmailAddress(), e.getMessage(), e);
+        }
+    }
+
+    // ─── Contract — signed copies ────────────────────────────────────────────
+
+    @Async("notificationTaskExecutor")
+    public void sendFullySignedContractCopies(BookingContract contract, java.nio.file.Path contractDir) {
+        if (contract == null || contract.getBooking() == null) return;
+        String vehicleTitle = EmailTemplateService.vehicleTitle(contract.getBooking().getVehicle());
+        String fileName = "Contract-" + vehicleTitle.replaceAll("[^a-zA-Z0-9]", "_") + "-FullySigned.pdf";
+
+        User renter = contract.getBooking().getUser();
+        if (renter != null && !blank(renter.getEmailAddress())) {
+            String html = "<div style='font-family:sans-serif;max-width:600px;margin:auto'>"
+                    + "<h2 style='color:#1a1a2e'>Fully Executed Contract — " + vehicleTitle + "</h2>"
+                    + "<p>Hi " + (renter.getFirstName() != null ? renter.getFirstName() : "there") + ",</p>"
+                    + "<p>Both parties have signed the rental agreement for <strong>" + vehicleTitle + "</strong>. "
+                    + "The fully executed contract is attached.</p>"
+                    + "<p><a href='" + frontendUrl + "/bookings/" + contract.getBooking().getId()
+                    + "' style='background:#1a1a2e;color:#fff;padding:10px 20px;border-radius:4px;"
+                    + "text-decoration:none;display:inline-block'>View Booking</a></p>"
+                    + "<p style='color:#666;font-size:12px'>Ramellian Executive Travels</p>"
+                    + "</div>";
+            sendWithAttachment(renter.getEmailAddress(), "Fully Executed Contract — " + vehicleTitle,
+                    html, contract.getSignedFileName(), contractDir, fileName);
+        }
+
+        User owner = contract.getBooking().getVehicle() != null
+                ? contract.getBooking().getVehicle().getOwner() : null;
+        if (owner != null && !blank(owner.getEmailAddress())) {
+            String html = "<div style='font-family:sans-serif;max-width:600px;margin:auto'>"
+                    + "<h2 style='color:#1a1a2e'>Fully Executed Contract — " + vehicleTitle + "</h2>"
+                    + "<p>Hi " + (owner.getFirstName() != null ? owner.getFirstName() : "there") + ",</p>"
+                    + "<p>Both parties have signed the rental agreement for <strong>" + vehicleTitle + "</strong>. "
+                    + "The fully executed contract is attached for your records.</p>"
+                    + "<p><a href='" + frontendUrl + "/owner/bookings/" + contract.getBooking().getId()
+                    + "' style='background:#1a1a2e;color:#fff;padding:10px 20px;border-radius:4px;"
+                    + "text-decoration:none;display:inline-block'>View Booking</a></p>"
+                    + "<p style='color:#666;font-size:12px'>Ramellian Executive Travels</p>"
+                    + "</div>";
+            sendWithAttachment(owner.getEmailAddress(), "Fully Executed Contract — " + vehicleTitle,
+                    html, contract.getSignedFileName(), contractDir, fileName);
+        }
+    }
+
+    private void sendWithAttachment(String to, String subject, String html,
+                                    String fileName, java.nio.file.Path dir, String attachmentName) {
+        try {
+            java.io.File file = fileName != null ? dir.resolve(fileName).toFile() : null;
+            MimeMessage mime = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mime, true, "UTF-8");
+            if (!blank(fromEmail)) helper.setFrom(fromEmail.trim(), "Ramellian Executive Travels");
+            helper.setTo(to.trim());
+            helper.setSubject(subject);
+            helper.setText(html, true);
+            if (file != null && file.exists()) {
+                helper.addAttachment(attachmentName, file);
+            }
+            mailSender.send(mime);
+        } catch (Exception e) {
+            log.error("Failed to send contract copy email to {}: {}", to, e.getMessage(), e);
         }
     }
 

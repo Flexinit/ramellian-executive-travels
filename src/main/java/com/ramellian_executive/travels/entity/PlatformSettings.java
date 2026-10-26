@@ -30,4 +30,43 @@ public class PlatformSettings extends AbstractEntity {
 
     @Column(name = "bot_assistant_enabled", nullable = false, columnDefinition = "boolean not null default true")
     private boolean botAssistantEnabled = true;
+
+    @Column(name = "pickup_reminder_enabled", nullable = false, columnDefinition = "boolean not null default true")
+    private boolean pickupReminderEnabled = true;
+
+    @Column(name = "pickup_reminder_renter_enabled", nullable = false, columnDefinition = "boolean not null default true")
+    private boolean pickupReminderRenterEnabled = true;
+
+    @Column(name = "pickup_reminder_owner_enabled", nullable = false, columnDefinition = "boolean not null default true")
+    private boolean pickupReminderOwnerEnabled = true;
+
+    @Column(name = "pickup_reminder_lead_minutes", nullable = false, columnDefinition = "integer not null default 60")
+    private int pickupReminderLeadMinutes = 60;
+
+    @Column(name = "support_email")
+    private String supportEmail;
+
+    @Column(name = "support_phone")
+    private String supportPhone;
+
+    @Column(name = "address")
+    private String address;
+
+    @Column(name = "website")
+    private String website;
+
+    @Column(name = "facebook")
+    private String facebook;
+
+    @Column(name = "instagram")
+    private String instagram;
+
+    @Column(name = "whatsapp")
+    private String whatsapp;
+
+    @Column(name = "x_twitter")
+    private String xTwitter;
+
+    @Column(name = "tiktok")
+    private String tiktok;
 }

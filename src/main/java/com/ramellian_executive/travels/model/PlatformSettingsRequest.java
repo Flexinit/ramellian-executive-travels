@@ -11,5 +11,18 @@ public record PlatformSettingsRequest(
         @DecimalMin("0.0") @DecimalMax("100.0") Double pesapalTransactionFeeRatePct,
         @DecimalMin("0.0") Double deliveryFlatFee,
         @DecimalMin("0.0") Double driverFlatCharge,
-        Boolean botAssistantEnabled
+        Boolean botAssistantEnabled,
+        Boolean pickupReminderEnabled,
+        Boolean pickupReminderRenterEnabled,
+        Boolean pickupReminderOwnerEnabled,
+        Integer pickupReminderLeadMinutes,
+        String supportEmail,
+        String supportPhone,
+        String address,
+        String website,
+        String facebook,
+        String instagram,
+        String whatsapp,
+        String xTwitter,
+        String tiktok
 ) {}

@@ -1,5 +1,6 @@
 package com.ramellian_executive.travels.controller;
 
+import com.ramellian_executive.travels.service.PlatformSettingsService;
 import com.ramellian_executive.travels.service.bot.BaileysBotClient;
 import com.ramellian_executive.travels.service.bot.BotMedia;
 import com.ramellian_executive.travels.service.bot.BotService;
@@ -10,6 +11,7 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,6 +25,15 @@ public class BotController {
 
     private final BotService botService;
     private final BaileysBotClient baileysClient;
+    private final PlatformSettingsService platformSettingsService;
+
+    // ── Public status check (frontend uses this to show/hide widget) ──────────
+
+    @GetMapping("/api/v1/bot/status")
+    @Operation(summary = "Check whether the in-app bot assistant is enabled")
+    public ResponseEntity<BotStatusResponse> status() {
+        return ResponseEntity.ok(new BotStatusResponse(platformSettingsService.isBotAssistantEnabled()));
+    }
 
     // ── WhatsApp inbound (called by Baileys microservice, no JWT) ──────────────
 
@@ -65,4 +76,6 @@ public class BotController {
     public record InAppBotRequest(@NotBlank String message) {}
 
     public record InAppBotResponse(String text, List<BotMedia> media) {}
+
+    public record BotStatusResponse(boolean enabled) {}
 }
