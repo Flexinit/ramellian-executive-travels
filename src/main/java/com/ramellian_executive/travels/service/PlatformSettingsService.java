@@ -129,6 +129,13 @@ public class PlatformSettingsService {
                 .orElse(true);
     }
 
+    @Transactional(readOnly = true)
+    public String getSupportEmail() {
+        return repository.findFirstByOrderByCreatedAtDesc()
+                .map(PlatformSettings::getSupportEmail)
+                .orElse(null);
+    }
+
     private static boolean blank(String s) { return s == null || s.isBlank(); }
 
     @Transactional(readOnly = true)

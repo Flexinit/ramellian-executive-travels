@@ -389,6 +389,78 @@ public class VerificationNotificationService {
         send(owner.getEmailAddress(), "Sign Required: Contract for " + vehicleTitle, html);
     }
 
+    // ─── Google account — set password ───────────────────────────────────────
+
+    @Async("notificationTaskExecutor")
+    public void sendSetPasswordEmail(String email, String code) {
+        if (blank(email)) return;
+        String html = "<div style='font-family:sans-serif;max-width:600px;margin:auto'>"
+                + "<h2 style='color:#1a1a2e'>Set a Password for Your Account</h2>"
+                + "<p>Your account was originally created with Google Sign-In. You can now set a password so you can also log in with your email and password.</p>"
+                + "<p>Use the code below to set your password. It expires shortly.</p>"
+                + "<div style='font-size:32px;font-weight:bold;letter-spacing:8px;margin:24px 0;color:#1a1a2e'>" + code + "</div>"
+                + "<p>If you didn't request this, you can safely ignore this email — your account remains accessible via Google Sign-In.</p>"
+                + "<p style='color:#666;font-size:12px'>Ramellian Executive Travels</p>"
+                + "</div>";
+        send(email, "Set Your Password — Ramellian Executive Travels", html);
+    }
+
+    // ─── Contact form ────────────────────────────────────────────────────────
+
+    @Async("notificationTaskExecutor")
+    public void sendContactFormToSupport(com.ramellian_executive.travels.model.ContactRequest request,
+                                         String supportEmail) {
+        String destination = (supportEmail != null && !supportEmail.isBlank()) ? supportEmail : fromEmail;
+        if (blank(destination)) return;
+
+        String html = "<div style='font-family:sans-serif;max-width:600px;margin:auto'>"
+                + "<h2 style='color:#1a1a2e'>New Contact Form Message</h2>"
+                + "<table style='border-collapse:collapse;width:100%'>"
+                + row("Name", request.name())
+                + row("Email", request.email())
+                + row("Phone", request.phone() != null && !request.phone().isBlank() ? request.phone() : "—")
+                + row("Subject", request.subject())
+                + "</table>"
+                + "<h3 style='margin-top:24px'>Message</h3>"
+                + "<div style='background:#f5f5f5;padding:16px;border-radius:4px;white-space:pre-wrap'>"
+                + escapeHtml(request.message())
+                + "</div>"
+                + "<p style='color:#666;font-size:12px;margin-top:24px'>Ramellian Executive Travels — Contact Form</p>"
+                + "</div>";
+        send(destination, "Contact Form: " + request.subject(), html);
+    }
+
+    @Async("notificationTaskExecutor")
+    public void sendContactAutoReply(com.ramellian_executive.travels.model.ContactRequest request) {
+        if (blank(request.email())) return;
+
+        String html = "<div style='font-family:sans-serif;max-width:600px;margin:auto'>"
+                + "<h2 style='color:#1a1a2e'>We've received your message</h2>"
+                + "<p>Hi " + escapeHtml(request.name()) + ",</p>"
+                + "<p>Thank you for reaching out. We've received your message and will get back to you as soon as possible, typically within 24 hours.</p>"
+                + "<h3>Your message</h3>"
+                + "<table style='border-collapse:collapse;width:100%'>"
+                + row("Subject", request.subject())
+                + "</table>"
+                + "<div style='background:#f5f5f5;padding:16px;border-radius:4px;margin-top:12px;white-space:pre-wrap'>"
+                + escapeHtml(request.message())
+                + "</div>"
+                + "<p style='margin-top:24px'>In the meantime, you can explore available vehicles on our platform.</p>"
+                + "<p style='color:#666;font-size:12px;margin-top:24px'>Ramellian Executive Travels</p>"
+                + "</div>";
+        send(request.email(), "We received your message — " + request.subject(), html);
+    }
+
+    private static String row(String label, String value) {
+        return "<tr><td style='padding:8px;border:1px solid #ddd;font-weight:bold;width:120px'>" + label + "</td>"
+                + "<td style='padding:8px;border:1px solid #ddd'>" + escapeHtml(value) + "</td></tr>";
+    }
+
+    private static String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
     // ─── Disbursement ─────────────────────────────────────────────────────────
 
     @Async("notificationTaskExecutor")

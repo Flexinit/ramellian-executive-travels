@@ -50,6 +50,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/rental-terms", "/api/v1/rental-terms/category/**", "/api/v1/rental-terms/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/bookings/quote").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/booking-leads").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/contact").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/bot/whatsapp/inbound").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/bot/status").permitAll()
                         .requestMatchers("/api/v1/super-admin/**").hasRole("SUPER_ADMIN")

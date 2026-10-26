@@ -185,6 +185,11 @@ public class AuthService {
     public AuthResponse login( LoginRequest request) {
         String email = request.email().trim().toLowerCase();
         User user = findUser(email);
+        if ("GOOGLE".equalsIgnoreCase(user.getAuthProvider()) && user.getPassword() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                    "This account uses Google Sign-In and has no password set. " +
+                    "Please sign in with Google, or use 'Forgot Password' to create a password for email login.");
+        }
         if (!user.isEmailVerified()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Email verification is required");
         }
@@ -331,11 +336,16 @@ public class AuthService {
             user.setVerificationCodeHash(verificationCodeService.hash(code));
             user.setVerificationCodeExpiresAt(ZonedDateTime.now().plusMinutes(codeExpirationMinutes));
             userRepository.save(user);
-            notificationService.sendPasswordResetEmail(email, code);
+            boolean isGoogleOnly = "GOOGLE".equalsIgnoreCase(user.getAuthProvider()) && user.getPassword() == null;
+            if (isGoogleOnly) {
+                notificationService.sendSetPasswordEmail(email, code);
+            } else {
+                notificationService.sendPasswordResetEmail(email, code);
+            }
             if (auditLogService != null) {
                 auditLogService.logAction(email, "AUTH_FORGOT_PASSWORD", "USER",
                         user.getId() != null ? user.getId().toString() : null,
-                        "Password reset code generated", "SUCCESS");
+                        isGoogleOnly ? "Set-password code generated for Google account" : "Password reset code generated", "SUCCESS");
             }
         });
     }

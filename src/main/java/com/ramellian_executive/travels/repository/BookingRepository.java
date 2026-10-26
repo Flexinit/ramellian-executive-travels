@@ -42,6 +42,12 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     List<Booking> findByUserEmailAddressIgnoreCaseOrderByStartTimeDesc(String email);
     List<Booking> findByVehicleOwnerEmailAddressIgnoreCaseOrderByStartTimeDesc(String email);
     List<Booking> findAllByOrderByStartTimeDesc();
+
+    @Query("select b from Booking b where b.user.emailAddress = :email and b.status <> com.ramellian_executive.travels.entity.BookingStatus.ARCHIVED order by b.startTime desc")
+    List<Booking> findActiveByUserEmailIgnoreCase(@Param("email") String email);
+
+    @Query("select b from Booking b where b.vehicle.owner.emailAddress = :email and b.status <> com.ramellian_executive.travels.entity.BookingStatus.ARCHIVED order by b.startTime desc")
+    List<Booking> findActiveByVehicleOwnerEmailIgnoreCase(@Param("email") String email);
     List<Booking> findByStatusAndCreatedAtBefore(BookingStatus status, ZonedDateTime cutoff);
     List<Booking> findByStatusAndStartTimeBefore(BookingStatus status, ZonedDateTime now);
     List<Booking> findByStatusAndEndTimeBefore(BookingStatus status, ZonedDateTime now);

@@ -44,8 +44,6 @@ public class BookingService {
     private final NotificationService appNotificationService;
     private final PlatformSettingsService platformSettingsService;
     private final VehicleReviewService reviewService;
-    @Value("${app.booking.pending-expiration-ms:900000}")
-    private long pendingExpirationMs;
 
     @org.springframework.beans.factory.annotation.Autowired
     public BookingService(BookingRepository bookingRepository, BookingGroupRepository bookingGroupRepository,
@@ -202,6 +200,12 @@ public class BookingService {
             warnings.add("A valid driving license is required for self-drive rentals. " +
                          "Please upload and get it approved before pickup or your booking may be cancelled without a refund.");
         }
+        if (mode == BookingMode.SELF_DRIVE
+                && !documentRepository.existsByUserIdAndDocumentTypeAndReviewStatus(
+                        renter.getId(), DocumentType.CERTIFICATE_OF_GOOD_CONDUCT, DocumentReviewStatus.APPROVED)) {
+            warnings.add("A Certificate of Good Conduct is required for self-drive rentals. " +
+                         "Please upload and get it approved before pickup or your booking may be cancelled without a refund.");
+        }
         return warnings;
     }
 
@@ -220,13 +224,13 @@ public class BookingService {
 
     @Transactional(readOnly = true)
     public List<BookingResponse> mine(Authentication authentication) {
-        return bookingRepository.findByUserEmailAddressIgnoreCaseOrderByStartTimeDesc(authentication.getName())
+        return bookingRepository.findActiveByUserEmailIgnoreCase(authentication.getName())
                 .stream().map(b -> BookingResponse.from(b, commissionRateFor(b)).withoutOwnerPayout()).toList();
     }
 
     @Transactional(readOnly = true)
     public List<BookingResponse> forOwner(Authentication authentication) {
-        return bookingRepository.findByVehicleOwnerEmailAddressIgnoreCaseOrderByStartTimeDesc(authentication.getName())
+        return bookingRepository.findActiveByVehicleOwnerEmailIgnoreCase(authentication.getName())
                 .stream().map(b -> BookingResponse.from(b, commissionRateFor(b))).toList();
     }
 
@@ -293,24 +297,6 @@ public class BookingService {
                 });
     }
 
-    @Transactional
-    @Scheduled(fixedDelayString = "${app.booking.pending-expiration-ms:900000}")
-    public void expireUnpaidPendingBookings() {
-            ZonedDateTime cutoff = ZonedDateTime.now().minusNanos(
-                    java.time.Duration.ofMillis(pendingExpirationMs).toNanos());
-            bookingRepository.findByStatusAndCreatedAtBefore(BookingStatus.PENDING, cutoff)
-                    .forEach(booking -> {
-                        if (paymentRepository == null
-                                || (!paymentRepository.existsByBookingIdAndStatus(
-                                        booking.getId(), PaymentStatus.SUCCESSFUL)
-                                    && !paymentRepository.existsByBookingIdAndStatusAndProviderOrderTrackingIdIsNotNull(
-                                        booking.getId(), PaymentStatus.PENDING))) {
-                            booking.setStatus(BookingStatus.CANCELLED);
-                            booking.setDispatcherNotes("Automatically expired before payment");
-                            bookingRepository.save(booking);
-                        }
-                    });
-    }
 
     @Transactional(readOnly = true)
     public BookingReportResponse report(List<Booking> bookings, boolean includeOwnerPayout) {
@@ -344,11 +330,11 @@ public class BookingService {
     }
 
     public BookingReportResponse renterReport(Authentication authentication) {
-        return report(bookingRepository.findByUserEmailAddressIgnoreCaseOrderByStartTimeDesc(authentication.getName()), false);
+        return report(bookingRepository.findActiveByUserEmailIgnoreCase(authentication.getName()), false);
     }
 
     public BookingReportResponse ownerReport(Authentication authentication) {
-        return report(bookingRepository.findByVehicleOwnerEmailAddressIgnoreCaseOrderByStartTimeDesc(authentication.getName()), true);
+        return report(bookingRepository.findActiveByVehicleOwnerEmailIgnoreCase(authentication.getName()), true);
     }
 
     public BookingReportResponse platformReport() {
@@ -381,10 +367,13 @@ public class BookingService {
         boolean manager = has(authentication, "BOOKING_MANAGE");
         boolean owner = booking.getVehicle().getOwner().getEmailAddress().equalsIgnoreCase(authentication.getName());
         boolean renter = booking.getUser().getEmailAddress().equalsIgnoreCase(authentication.getName());
+        if (next == BookingStatus.ARCHIVED && !manager) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only a booking manager can archive a booking");
+        }
         if (next == BookingStatus.CANCELLED && !renter && !owner && !manager) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot cancel this booking");
         }
-        if (next != BookingStatus.CANCELLED && !owner && !manager) {
+        if (next != BookingStatus.CANCELLED && next != BookingStatus.ARCHIVED && !owner && !manager) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the vehicle owner or booking manager can change this status");
         }
         if (!validTransition(booking.getStatus(), next)) {
@@ -593,6 +582,7 @@ public class BookingService {
             case PENDING -> to == BookingStatus.CONFIRMED || to == BookingStatus.REJECTED || to == BookingStatus.CANCELLED;
             case CONFIRMED -> to == BookingStatus.ACTIVE || to == BookingStatus.CANCELLED;
             case ACTIVE -> to == BookingStatus.COMPLETED || to == BookingStatus.CANCELLED;
+            case COMPLETED, CANCELLED, REJECTED -> to == BookingStatus.ARCHIVED;
             default -> false;
         };
     }
