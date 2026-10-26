@@ -14,6 +14,9 @@ public class VehiclePhoto {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
+    @Column(name = "vehicle_id", insertable = false, updatable = false)
+    private UUID vehicleId;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "vehicle_id", nullable = false)
     private Vehicle vehicle;

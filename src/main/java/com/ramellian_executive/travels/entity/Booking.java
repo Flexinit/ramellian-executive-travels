@@ -9,7 +9,13 @@ import java.time.ZonedDateTime;
 @Getter
 @Setter
 @Entity
-@Table(name = "booking")
+@Table(name = "booking", indexes = {
+    @Index(name = "idx_booking_vehicle_status_time",   columnList = "vehicle_id,status,start_time,end_time"),
+    @Index(name = "idx_booking_chauffeur_status_time", columnList = "chauffeur_id,status,start_time,end_time"),
+    @Index(name = "idx_booking_user_status",           columnList = "user_id,status,start_time"),
+    @Index(name = "idx_booking_status_created",        columnList = "status,created_at"),
+    @Index(name = "idx_booking_group",                 columnList = "booking_group_id")
+})
 public class Booking extends AbstractEntity {
 
     @ManyToOne

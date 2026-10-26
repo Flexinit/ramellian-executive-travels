@@ -27,11 +27,13 @@ public class BookingReminderScheduler {
     @Scheduled(fixedDelay = 15 * 60 * 1000)
     @Transactional
     public void sendPickupReminders() {
-        if (!platformSettingsService.isPickupReminderEnabled()) return;
+        // Read all settings in one cache hit
+        var settings = platformSettingsService.get();
+        if (!settings.pickupReminderEnabled()) return;
 
-        int leadMinutes = platformSettingsService.getPickupReminderLeadMinutes();
-        boolean notifyRenter = platformSettingsService.isPickupReminderRenterEnabled();
-        boolean notifyOwner = platformSettingsService.isPickupReminderOwnerEnabled();
+        int leadMinutes = settings.pickupReminderLeadMinutes();
+        boolean notifyRenter = settings.pickupReminderRenterEnabled();
+        boolean notifyOwner = settings.pickupReminderOwnerEnabled();
         if (!notifyRenter && !notifyOwner) return;
 
         ZonedDateTime now = ZonedDateTime.now();

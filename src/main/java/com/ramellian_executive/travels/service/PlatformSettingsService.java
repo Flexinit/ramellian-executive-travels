@@ -6,6 +6,8 @@ import com.ramellian_executive.travels.model.PlatformSettingsResponse;
 import com.ramellian_executive.travels.repository.PlatformSettingsRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +17,7 @@ public class PlatformSettingsService {
 
     private final PlatformSettingsRepository repository;
 
+    @Cacheable("platformSettings")
     @Transactional(readOnly = true)
     public PlatformSettingsResponse get() {
         return repository.findFirstByOrderByCreatedAtDesc()
@@ -30,6 +33,7 @@ public class PlatformSettingsService {
         }
     }
 
+    @Cacheable("platformSettings")
     @Transactional(readOnly = true)
     public double getCommissionRatePct() {
         return repository.findFirstByOrderByCreatedAtDesc()
@@ -37,6 +41,7 @@ public class PlatformSettingsService {
                 .orElse(15.0);
     }
 
+    @Cacheable("platformSettings")
     @Transactional(readOnly = true)
     public double getCommissionRatePct(long days) {
         PlatformSettings s = repository.findFirstByOrderByCreatedAtDesc().orElse(null);
@@ -46,6 +51,7 @@ public class PlatformSettingsService {
                 : s.getCommissionRatePct();
     }
 
+    @Cacheable("platformSettings")
     @Transactional(readOnly = true)
     public double getPesapalTransactionFeeRatePct() {
         return repository.findFirstByOrderByCreatedAtDesc()
@@ -53,6 +59,7 @@ public class PlatformSettingsService {
                 .orElse(1.5);
     }
 
+    @Cacheable("platformSettings")
     @Transactional(readOnly = true)
     public double getDeliveryFlatFee() {
         return repository.findFirstByOrderByCreatedAtDesc()
@@ -60,6 +67,7 @@ public class PlatformSettingsService {
                 .orElse(0.0);
     }
 
+    @Cacheable("platformSettings")
     @Transactional(readOnly = true)
     public double getDriverFlatCharge() {
         return repository.findFirstByOrderByCreatedAtDesc()
@@ -67,6 +75,7 @@ public class PlatformSettingsService {
                 .orElse(0.0);
     }
 
+    @CacheEvict(value = "platformSettings", allEntries = true)
     @Transactional
     public PlatformSettingsResponse set(PlatformSettingsRequest request) {
         PlatformSettings settings = repository.findFirstByOrderByCreatedAtDesc()
@@ -114,6 +123,7 @@ public class PlatformSettingsService {
         return PlatformSettingsResponse.from(repository.save(settings));
     }
 
+    @CacheEvict(value = "platformSettings", allEntries = true)
     @Transactional
     public PlatformSettingsResponse toggleBot(boolean enabled) {
         PlatformSettings settings = repository.findFirstByOrderByCreatedAtDesc()
@@ -122,6 +132,7 @@ public class PlatformSettingsService {
         return PlatformSettingsResponse.from(repository.save(settings));
     }
 
+    @Cacheable("platformSettings")
     @Transactional(readOnly = true)
     public boolean isBotAssistantEnabled() {
         return repository.findFirstByOrderByCreatedAtDesc()
@@ -129,6 +140,7 @@ public class PlatformSettingsService {
                 .orElse(true);
     }
 
+    @Cacheable("platformSettings")
     @Transactional(readOnly = true)
     public String getSupportEmail() {
         return repository.findFirstByOrderByCreatedAtDesc()
@@ -138,6 +150,7 @@ public class PlatformSettingsService {
 
     private static boolean blank(String s) { return s == null || s.isBlank(); }
 
+    @Cacheable("platformSettings")
     @Transactional(readOnly = true)
     public boolean isPickupReminderEnabled() {
         return repository.findFirstByOrderByCreatedAtDesc()
@@ -145,6 +158,7 @@ public class PlatformSettingsService {
                 .orElse(true);
     }
 
+    @Cacheable("platformSettings")
     @Transactional(readOnly = true)
     public boolean isPickupReminderRenterEnabled() {
         return repository.findFirstByOrderByCreatedAtDesc()
@@ -152,6 +166,7 @@ public class PlatformSettingsService {
                 .orElse(true);
     }
 
+    @Cacheable("platformSettings")
     @Transactional(readOnly = true)
     public boolean isPickupReminderOwnerEnabled() {
         return repository.findFirstByOrderByCreatedAtDesc()
@@ -159,6 +174,7 @@ public class PlatformSettingsService {
                 .orElse(true);
     }
 
+    @Cacheable("platformSettings")
     @Transactional(readOnly = true)
     public int getPickupReminderLeadMinutes() {
         return repository.findFirstByOrderByCreatedAtDesc()

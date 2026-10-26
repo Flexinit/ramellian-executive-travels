@@ -1,8 +1,10 @@
 package com.ramellian_executive.travels.repository;
 import com.ramellian_executive.travels.entity.Booking;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.stereotype.Repository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -49,8 +51,6 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     @Query("select b from Booking b where b.vehicle.owner.emailAddress = :email and b.status <> com.ramellian_executive.travels.entity.BookingStatus.ARCHIVED order by b.startTime desc")
     List<Booking> findActiveByVehicleOwnerEmailIgnoreCase(@Param("email") String email);
     List<Booking> findByStatusAndCreatedAtBefore(BookingStatus status, ZonedDateTime cutoff);
-    List<Booking> findByStatusAndStartTimeBefore(BookingStatus status, ZonedDateTime now);
-    List<Booking> findByStatusAndEndTimeBefore(BookingStatus status, ZonedDateTime now);
     List<Booking> findByBookingGroupId(UUID bookingGroupId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -71,6 +71,7 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
                                                @Param("activeStatuses") List<BookingStatus> activeStatuses,
                                                @Param("excludeId") UUID excludeId);
 
+    @EntityGraph(attributePaths = {"user", "vehicle", "vehicle.owner"})
     @Query("""
             select b from Booking b
             where b.status = com.ramellian_executive.travels.entity.BookingStatus.CONFIRMED
@@ -80,4 +81,16 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             """)
     List<Booking> findConfirmedBookingsDueSoon(@Param("from") ZonedDateTime from,
                                                @Param("to") ZonedDateTime to);
+
+    @Modifying
+    @Query("update Booking b set b.status = :to where b.status = :from and b.startTime < :now")
+    int bulkTransitionByStartTime(@Param("from") BookingStatus from,
+                                  @Param("to") BookingStatus to,
+                                  @Param("now") ZonedDateTime now);
+
+    @Modifying
+    @Query("update Booking b set b.status = :to where b.status = :from and b.endTime < :now")
+    int bulkTransitionByEndTime(@Param("from") BookingStatus from,
+                                @Param("to") BookingStatus to,
+                                @Param("now") ZonedDateTime now);
 }

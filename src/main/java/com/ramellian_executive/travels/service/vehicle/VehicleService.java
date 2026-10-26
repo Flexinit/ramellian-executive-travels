@@ -243,7 +243,7 @@ public class VehicleService {
         if (photoRepository == null || ids.isEmpty()) return Map.of();
         return photoRepository.findByVehicleIdIn(ids).stream()
                 .collect(Collectors.groupingBy(
-                        p -> p.getVehicle().getId(),
+                        p -> p.getVehicleId(),
                         Collectors.mapping(p -> p.getUrl(), Collectors.toList())));
     }
 

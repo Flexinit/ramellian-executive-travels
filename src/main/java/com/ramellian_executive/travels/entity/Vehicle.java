@@ -11,7 +11,10 @@ import java.util.Set;
 @Getter
 @Setter
 @Entity
-@Table(name = "vehicle")
+@Table(name = "vehicle", indexes = {
+    @Index(name = "idx_vehicle_owner",           columnList = "owner_id"),
+    @Index(name = "idx_vehicle_approval_avail",  columnList = "approval_status,available")
+})
 public class Vehicle extends AbstractEntity {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

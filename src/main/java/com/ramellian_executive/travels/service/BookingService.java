@@ -285,16 +285,8 @@ public class BookingService {
     @Scheduled(fixedDelay = 60000)
     public void transitionBookingStatuses() {
         ZonedDateTime now = ZonedDateTime.now();
-        bookingRepository.findByStatusAndStartTimeBefore(BookingStatus.CONFIRMED, now)
-                .forEach(booking -> {
-                    booking.setStatus(BookingStatus.ACTIVE);
-                    bookingRepository.save(booking);
-                });
-        bookingRepository.findByStatusAndEndTimeBefore(BookingStatus.ACTIVE, now)
-                .forEach(booking -> {
-                    booking.setStatus(BookingStatus.COMPLETED);
-                    bookingRepository.save(booking);
-                });
+        bookingRepository.bulkTransitionByStartTime(BookingStatus.CONFIRMED, BookingStatus.ACTIVE, now);
+        bookingRepository.bulkTransitionByEndTime(BookingStatus.ACTIVE, BookingStatus.COMPLETED, now);
     }
 
 

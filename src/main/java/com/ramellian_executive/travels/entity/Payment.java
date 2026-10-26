@@ -7,7 +7,10 @@ import lombok.Setter;
 @Getter
 @Setter
 @Entity
-@Table(name = "payment")
+@Table(name = "payment", indexes = {
+    @Index(name = "idx_payment_booking", columnList = "booking_id"),
+    @Index(name = "idx_payment_status",  columnList = "status")
+})
 public class Payment extends AbstractEntity {
 
     @ManyToOne
