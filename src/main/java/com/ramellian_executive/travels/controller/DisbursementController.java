@@ -3,11 +3,14 @@ package com.ramellian_executive.travels.controller;
 import com.ramellian_executive.travels.entity.DisbursementStatus;
 import com.ramellian_executive.travels.model.DisbursementResponse;
 import com.ramellian_executive.travels.model.DisbursementTriggerRequest;
+import com.ramellian_executive.travels.model.ManualDisbursementRequest;
+import com.ramellian_executive.travels.model.UpdateDisbursementRequest;
 import com.ramellian_executive.travels.service.DisbursementService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
 
 import java.util.List;
 import java.util.UUID;
@@ -52,5 +55,20 @@ public class DisbursementController {
     @PostMapping("/{id}/sync")
     public DisbursementResponse sync(@PathVariable UUID id, Authentication authentication) {
         return disbursementService.syncStatus(id, authentication);
+    }
+
+    @PostMapping("/bookings/{bookingId}")
+    @ResponseStatus(HttpStatus.CREATED)
+    public DisbursementResponse createManual(@PathVariable UUID bookingId,
+                                             @RequestBody(required = false) ManualDisbursementRequest request,
+                                             Authentication authentication) {
+        return disbursementService.createManual(bookingId, request, authentication);
+    }
+
+    @PatchMapping("/{id}")
+    public DisbursementResponse update(@PathVariable UUID id,
+                                       @RequestBody UpdateDisbursementRequest request,
+                                       Authentication authentication) {
+        return disbursementService.update(id, request, authentication);
     }
 }

@@ -17,4 +17,6 @@ public interface DisbursementRepository extends JpaRepository<Disbursement, UUID
     Optional<Disbursement> findByPaymentId(UUID paymentId);
 
     boolean existsByPaymentId(UUID paymentId);
+
+    List<Disbursement> findByOwnerEmailIgnoreCaseOrderByCreatedAtDesc(String ownerEmail);
 }

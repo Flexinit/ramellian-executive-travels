@@ -3,11 +3,16 @@ package com.ramellian_executive.travels.service;
 import com.ramellian_executive.travels.entity.*;
 import com.ramellian_executive.travels.model.DisbursementResponse;
 import com.ramellian_executive.travels.model.DisbursementTriggerRequest;
+import com.ramellian_executive.travels.model.ManualDisbursementRequest;
+import com.ramellian_executive.travels.model.UpdateDisbursementRequest;
 import com.ramellian_executive.travels.repository.DisbursementRepository;
 import com.ramellian_executive.travels.repository.PaymentRepository;
 import com.ramellian_executive.travels.security.VerificationNotificationService;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +25,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class DisbursementService {
+
+    private static final Logger log = LoggerFactory.getLogger(DisbursementService.class);
 
     private final DisbursementRepository disbursementRepository;
     private final PaymentRepository paymentRepository;
@@ -60,6 +67,11 @@ public class DisbursementService {
         if (disbursement.getStatus() == DisbursementStatus.PROCESSING) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Disbursement is already processing — use /sync to check status");
+        }
+        // Allow re-triggering FAILED disbursements
+        if (disbursement.getStatus() == DisbursementStatus.FAILED) {
+            disbursement.setStatus(DisbursementStatus.PENDING);
+            disbursement.setReference(null);
         }
 
         if (disbursement.getOwnerPhone() == null || disbursement.getOwnerPhone().isBlank()) {
@@ -160,6 +172,35 @@ public class DisbursementService {
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Disbursement not found")));
     }
 
+    /** Polls Pesapal every 10 minutes for any disbursement still in PROCESSING state. */
+    @Transactional
+    @Scheduled(fixedDelay = 10 * 60 * 1000)
+    public void autoSyncProcessingDisbursements() {
+        List<Disbursement> processing = disbursementRepository
+                .findByStatusOrderByCreatedAtDesc(DisbursementStatus.PROCESSING);
+        if (processing.isEmpty()) return;
+        log.info("Auto-syncing {} PROCESSING disbursement(s) with Pesapal", processing.size());
+        for (Disbursement disbursement : processing) {
+            try {
+                if (disbursement.getReference() == null || disbursement.getReference().isBlank()) continue;
+                PesapalClient.PesapalDisbursementStatus ps =
+                        pesapalClient.getDisbursementStatus(disbursement.getReference());
+                if ("COMPLETED".equals(ps.status())) {
+                    disbursement.setStatus(DisbursementStatus.COMPLETED);
+                    disbursementRepository.save(disbursement);
+                    notifyOwner(disbursement);
+                    log.info("Disbursement {} marked COMPLETED", disbursement.getId());
+                } else if ("FAILED".equals(ps.status())) {
+                    disbursement.setStatus(DisbursementStatus.FAILED);
+                    disbursementRepository.save(disbursement);
+                    log.warn("Disbursement {} marked FAILED by Pesapal", disbursement.getId());
+                }
+            } catch (Exception e) {
+                log.error("Failed to auto-sync disbursement {}", disbursement.getId(), e);
+            }
+        }
+    }
+
     private void notifyOwner(Disbursement disbursement) {
         try {
             notificationService.sendDisbursementPaid(disbursement);
@@ -184,6 +225,75 @@ public class DisbursementService {
         } catch (Exception e) {
             // in-app notification failure must not roll back
         }
+    }
+
+    @Transactional
+    public DisbursementResponse createManual(UUID bookingId, ManualDisbursementRequest request,
+                                             Authentication authentication) {
+        Payment payment = paymentRepository
+                .findByBookingIdAndChargeType(bookingId, PaymentChargeType.RENTAL)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No successful rental payment found for this booking"));
+        if (payment.getStatus() != PaymentStatus.SUCCESSFUL) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Payment has not been completed — payout cannot be created");
+        }
+        if (disbursementRepository.existsByPaymentId(payment.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "A disbursement already exists for this booking — use /trigger or /update instead");
+        }
+
+        Booking booking = payment.getBooking();
+        User owner = booking.getVehicle().getOwner();
+
+        double amount = (request != null && request.amount() != null && request.amount() > 0)
+                ? request.amount()
+                : payment.getOwnerPayout();
+        String phone = (request != null && request.ownerPhone() != null && !request.ownerPhone().isBlank())
+                ? request.ownerPhone().trim()
+                : owner.getPhoneNumber();
+
+        Disbursement disbursement = new Disbursement();
+        disbursement.setPayment(payment);
+        disbursement.setAmount(amount);
+        disbursement.setOwnerEmail(owner.getEmailAddress());
+        disbursement.setOwnerName(trim(owner.getFirstName()) + " " + trim(owner.getLastName()));
+        disbursement.setOwnerPhone(phone);
+        disbursement.setStatus(DisbursementStatus.PENDING);
+        disbursement.setTriggeredBy(authentication.getName());
+        disbursement.setNotes(request != null ? request.notes() : null);
+        return DisbursementResponse.from(disbursementRepository.save(disbursement));
+    }
+
+    @Transactional
+    public DisbursementResponse update(UUID id, UpdateDisbursementRequest request,
+                                       Authentication authentication) {
+        Disbursement disbursement = disbursementRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Disbursement not found"));
+        if (disbursement.getStatus() == DisbursementStatus.COMPLETED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot edit a completed disbursement");
+        }
+        if (disbursement.getStatus() == DisbursementStatus.PROCESSING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Cannot edit a disbursement that is currently processing");
+        }
+        if (request.ownerPhone() != null && !request.ownerPhone().isBlank()) {
+            disbursement.setOwnerPhone(request.ownerPhone().trim());
+        }
+        if (request.amount() != null && request.amount() > 0) {
+            disbursement.setAmount(request.amount());
+        }
+        if (request.notes() != null) {
+            disbursement.setNotes(request.notes().isBlank() ? null : request.notes().trim());
+        }
+        return DisbursementResponse.from(disbursementRepository.save(disbursement));
+    }
+
+    @Transactional(readOnly = true)
+    public List<DisbursementResponse> listForOwner(Authentication authentication) {
+        return disbursementRepository
+                .findByOwnerEmailIgnoreCaseOrderByCreatedAtDesc(authentication.getName())
+                .stream().map(DisbursementResponse::from).toList();
     }
 
     private static String trim(String s) {

@@ -9,7 +9,11 @@ import java.time.ZonedDateTime;
 @Getter
 @Setter
 @Entity
-@Table(name = "disbursements")
+@Table(name = "disbursements", indexes = {
+    @Index(name = "idx_disbursement_payment",     columnList = "payment_id"),
+    @Index(name = "idx_disbursement_status",      columnList = "status"),
+    @Index(name = "idx_disbursement_owner_email", columnList = "owner_email")
+})
 public class Disbursement extends AbstractEntity {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
