@@ -92,7 +92,12 @@
       "Bash(./mvnw -B compile)",
       "Bash(./mvnw -B compile test-compile)",
       "WebSearch",
-      "Bash(grep -A 20 'BookingServiceTest$Create.*FAILURE\\\\|AuthServiceTest.*FAILURE')"
+      "Bash(grep -A 20 'BookingServiceTest$Create.*FAILURE\\\\|AuthServiceTest.*FAILURE')",
+      "Bash(nohup java *)",
+      "Bash(echo \"Starting... PID $!\")",
+      "Bash(echo \"Started PID $!\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('UP -', d.get\\('tokenType','ERR'\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('UP -', d.get\\('tokenType','ERR'\\), '| refresh:', bool\\(d.get\\('refreshToken'\\)\\)\\)\")"
     ]
   }
 }

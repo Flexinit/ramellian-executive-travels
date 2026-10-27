@@ -11,6 +11,7 @@ import com.ramellian_executive.travels.security.VerificationNotificationService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.Authentication;
@@ -33,6 +34,11 @@ public class DisbursementService {
     private final VerificationNotificationService notificationService;
     private final NotificationService appNotificationService;
     private final PesapalClient pesapalClient;
+    private final DarajaClient darajaClient;
+
+    @Value("${app.disbursement.provider:PESAPAL}")
+    private String disbursementProvider;
+
 
     @Transactional
     public void createForPickup(UUID bookingId) {
@@ -83,17 +89,30 @@ public class DisbursementService {
                 + (disbursement.getPayment() != null && disbursement.getPayment().getBooking() != null
                 ? disbursement.getPayment().getBooking().getId().toString() : disbursement.getId().toString());
 
-        PesapalClient.PesapalDisbursementBatch batch = pesapalClient.disburse(
-                disbursement.getId().toString(),
-                disbursement.getOwnerPhone(),
-                disbursement.getOwnerName() != null ? disbursement.getOwnerName() : "",
-                disbursement.getAmount(),
-                narration);
+        String reference;
+        if ("DARAJA".equalsIgnoreCase(disbursementProvider) && darajaClient.isConfigured()) {
+            DarajaClient.B2cResult b2c = darajaClient.b2c(
+                    disbursement.getId().toString(),
+                    disbursement.getOwnerPhone(),
+                    disbursement.getOwnerName() != null ? disbursement.getOwnerName() : "",
+                    disbursement.getAmount(),
+                    narration);
+            reference = b2c.originatorConversationId();
+            log.info("Daraja B2C triggered for disbursement {} — originatorConversationId={}", disbursement.getId(), reference);
+        } else {
+            PesapalClient.PesapalDisbursementBatch batch = pesapalClient.disburse(
+                    disbursement.getId().toString(),
+                    disbursement.getOwnerPhone(),
+                    disbursement.getOwnerName() != null ? disbursement.getOwnerName() : "",
+                    disbursement.getAmount(),
+                    narration);
+            reference = batch.batchNumber();
+        }
 
         disbursement.setStatus(DisbursementStatus.PROCESSING);
         disbursement.setTriggeredBy(authentication.getName());
         disbursement.setTriggeredAt(ZonedDateTime.now());
-        disbursement.setReference(batch.batchNumber());
+        disbursement.setReference(reference);
         disbursement.setNotes(request != null ? request.notes() : null);
 
         return DisbursementResponse.from(disbursementRepository.save(disbursement));

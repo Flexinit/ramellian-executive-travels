@@ -20,22 +20,28 @@ public class PesapalClient {
 
     private final HttpClient http = HttpClient.newHttpClient();
     private final String baseUrl;
+    private final String disbursementBaseUrl;
     private final String consumerKey;
     private final String consumerSecret;
     private final String callbackUrl;
     private final String notificationId;
+    private final boolean disbursementMock;
 
     public PesapalClient(
             @Value("${app.payment.pesapal.base-url:https://pay.pesapal.com/v3}") String baseUrl,
             @Value("${app.payment.pesapal.consumer-key:}") String consumerKey,
             @Value("${app.payment.pesapal.consumer-secret:}") String consumerSecret,
             @Value("${app.payment.pesapal.callback-url:}") String callbackUrl,
-            @Value("${app.payment.pesapal.notification-id:}") String notificationId) {
+            @Value("${app.payment.pesapal.notification-id:}") String notificationId,
+            @Value("${app.payment.pesapal.disbursement-mock:false}") boolean disbursementMock,
+            @Value("${app.payment.pesapal.disbursement-base-url:https://pay.pesapal.com/v3}") String disbursementBaseUrl) {
         this.baseUrl = baseUrl;
+        this.disbursementBaseUrl = disbursementBaseUrl;
         this.consumerKey = consumerKey;
         this.consumerSecret = consumerSecret;
         this.callbackUrl = callbackUrl;
         this.notificationId = notificationId;
+        this.disbursementMock = disbursementMock;
     }
 
     public PesapalOrder submitOrder(String merchantReference, double amount,
@@ -61,6 +67,11 @@ public class PesapalClient {
 
     public PesapalDisbursementBatch disburse(String uniqueId, String msisdn, String name,
                                               double amount, String narration) {
+        if (disbursementMock) {
+            String mockBatch = "MOCK-" + uniqueId;
+            log.warn("Disbursement mock enabled — skipping Pesapal API call. Fake batch_number: {}", mockBatch);
+            return new PesapalDisbursementBatch(mockBatch);
+        }
         ensureConfigured();
         String token = fetchToken();
         Map<String, Object> body = Map.of(
@@ -70,7 +81,7 @@ public class PesapalClient {
                         "name", name,
                         "amount", amount,
                         "narration", narration)));
-        Map<String, Object> resp = post(baseUrl + "/api/Disbursements/RequestDisbursement", token, body);
+        Map<String, Object> resp = post(disbursementBaseUrl + "/api/Disbursements/RequestDisbursement", token, body);
         return new PesapalDisbursementBatch(required(resp, "batch_number"));
     }
 
@@ -78,9 +89,23 @@ public class PesapalClient {
         ensureConfigured();
         String token = fetchToken();
         Map<String, Object> resp = get(
-                baseUrl + "/api/Disbursements/GetDisbursementStatus?batchNumber=" + batchNumber, token);
+                disbursementBaseUrl + "/api/Disbursements/GetDisbursementStatus?batchNumber=" + batchNumber, token);
         String status = String.valueOf(resp.getOrDefault("status", "UNKNOWN")).trim().toUpperCase();
         return new PesapalDisbursementStatus(batchNumber, status);
+    }
+
+    public PesapalRefundResult refund(String orderTrackingId, double amount, String reason) {
+        ensureConfigured();
+        String token = fetchToken();
+        Map<String, Object> body = Map.of(
+                "order_tracking_id", orderTrackingId,
+                "amount", amount,
+                "remarks", reason == null ? "" : reason);
+        Map<String, Object> resp = post(baseUrl + "/api/Transactions/RefundRequest", token, body);
+        String refundTrackingId = String.valueOf(resp.getOrDefault("refund_tracking_id",
+                resp.getOrDefault("order_tracking_id", ""))).trim();
+        String status = String.valueOf(resp.getOrDefault("status", "")).trim();
+        return new PesapalRefundResult(refundTrackingId.isBlank() ? orderTrackingId : refundTrackingId, status);
     }
 
     public PesapalTransaction status(String trackingId) {
@@ -150,4 +175,5 @@ public class PesapalClient {
     public record PesapalTransaction(int statusCode, String description, String receipt) {}
     public record PesapalDisbursementBatch(String batchNumber) {}
     public record PesapalDisbursementStatus(String batchNumber, String status) {}
+    public record PesapalRefundResult(String refundTrackingId, String status) {}
 }

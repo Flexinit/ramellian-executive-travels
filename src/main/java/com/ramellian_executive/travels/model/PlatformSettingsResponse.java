@@ -12,6 +12,10 @@ public record PlatformSettingsResponse(
         double pesapalTransactionFeeRatePct,
         double deliveryFlatFee,
         double driverFlatCharge,
+        double mpesaStkFee,
+        double mpesaB2cFee,
+        int overstayGracePeriodHours,
+        double overstayRateMultiplier,
         boolean botAssistantEnabled,
         boolean pickupReminderEnabled,
         boolean pickupReminderRenterEnabled,
@@ -31,6 +35,8 @@ public record PlatformSettingsResponse(
         return new PlatformSettingsResponse(s.getId(), s.getCommissionRatePct(),
                 s.getMultiDayCommissionRatePct(), s.getMultiDayThresholdDays(),
                 s.getPesapalTransactionFeeRatePct(), s.getDeliveryFlatFee(), s.getDriverFlatCharge(),
+                s.getMpesaStkFee(), s.getMpesaB2cFee(),
+                s.getOverstayGracePeriodHours(), s.getOverstayRateMultiplier(),
                 s.isBotAssistantEnabled(),
                 s.isPickupReminderEnabled(), s.isPickupReminderRenterEnabled(),
                 s.isPickupReminderOwnerEnabled(), s.getPickupReminderLeadMinutes(),
@@ -41,6 +47,7 @@ public record PlatformSettingsResponse(
 
     public static PlatformSettingsResponse defaults() {
         return new PlatformSettingsResponse(null, 15.0, 10.0, 2, 1.5, 0.0, 0.0,
+                33.0, 50.0, 1, 1.5,
                 true, true, true, true, 60,
                 null, null, null, null, null, null, null, null, null);
     }

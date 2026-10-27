@@ -28,17 +28,20 @@ public class VehicleHandoverService {
     private final PaymentRepository paymentRepository;
     private final VehicleHandoverRepository handoverRepository;
     private final DisbursementService disbursementService;
+    private final OverstayChargeService overstayChargeService;
     private final Path handoverDirectory;
 
     public VehicleHandoverService(BookingRepository bookingRepository,
                                   PaymentRepository paymentRepository,
                                   VehicleHandoverRepository handoverRepository,
                                   DisbursementService disbursementService,
+                                  OverstayChargeService overstayChargeService,
                                   @Value("${app.handover.directory:uploads/handovers}") String handoverDirectory) {
         this.bookingRepository = bookingRepository;
         this.paymentRepository = paymentRepository;
         this.handoverRepository = handoverRepository;
         this.disbursementService = disbursementService;
+        this.overstayChargeService = overstayChargeService;
         this.handoverDirectory = Paths.get(handoverDirectory).toAbsolutePath().normalize();
     }
 
@@ -118,8 +121,11 @@ public class VehicleHandoverService {
         VehicleHandover saved = handoverRepository.save(handover);
         saveSignature(signature, saved, HandoverType.DROPOFF);
 
+        booking.setActualEndTime(ZonedDateTime.now());
         booking.setStatus(BookingStatus.COMPLETED);
         bookingRepository.save(booking);
+
+        overstayChargeService.createIfOverstay(booking);
 
         return HandoverResponse.from(saved);
     }

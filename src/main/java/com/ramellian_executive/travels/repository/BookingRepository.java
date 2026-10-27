@@ -93,4 +93,8 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     int bulkTransitionByEndTime(@Param("from") BookingStatus from,
                                 @Param("to") BookingStatus to,
                                 @Param("now") ZonedDateTime now);
+
+    // Returns [[status, count], ...]
+    @Query("SELECT b.status, COUNT(b) FROM Booking b WHERE b.createdAt >= :from AND b.createdAt < :to GROUP BY b.status")
+    List<Object[]> countByStatusBetween(@Param("from") ZonedDateTime from, @Param("to") ZonedDateTime to);
 }
