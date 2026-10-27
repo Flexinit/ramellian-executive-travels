@@ -11,6 +11,7 @@ import com.ramellian_executive.travels.repository.UserRepository;
 import com.ramellian_executive.travels.repository.UserRoleRepository;
 import com.ramellian_executive.travels.security.GoogleIdTokenVerifierService;
 import com.ramellian_executive.travels.security.JwtService;
+import com.ramellian_executive.travels.entity.RefreshToken;
 import com.ramellian_executive.travels.security.VerificationCodeService;
 import com.ramellian_executive.travels.security.VerificationNotificationService;
 import org.springframework.http.HttpStatus;
@@ -52,6 +53,8 @@ public class AuthService {
     private final GoogleIdTokenVerifierService googleIdTokenVerifier;
 
     private final FirebaseService firebaseService;
+
+    private final RefreshTokenService refreshTokenService;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private AuditLogService auditLogService;
@@ -112,11 +115,11 @@ public class AuthService {
         if (useWhatsApp && user.getPhoneNumber() != null && !user.getPhoneNumber().isBlank()) {
             notificationService.sendWhatsApp(user.getPhoneNumber(), code);
             return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(new AuthResponse(null, "WhatsApp verification code sent", 0));
+                    .body(new AuthResponse(null, "WhatsApp verification code sent", 0, null));
         } else {
             notificationService.sendEmail(email, code, "email verification");
             return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(new AuthResponse(null, "Email verification required", 0));
+                    .body(new AuthResponse(null, "Email verification required", 0, null));
         }
     }
 
@@ -208,7 +211,7 @@ public class AuthService {
             if (auditLogService != null) {
                 auditLogService.logAction(email, "AUTH_2FA_CHALLENGE", "USER", user.getId() != null ? user.getId().toString() : null, "2FA challenge code generated", "SUCCESS");
             }
-            return new AuthResponse(null, "Two-factor verification required", 0);
+            return new AuthResponse(null, "Two-factor verification required", 0, null);
         }
         if (auditLogService != null) {
             auditLogService.logAction(email, "AUTH_LOGIN", "USER", user.getId() != null ? user.getId().toString() : null, "User logged in successfully", "SUCCESS");
@@ -401,8 +404,27 @@ public class AuthService {
     }
 
     private AuthResponse tokenResponse(UserDetails userDetails, boolean rememberMe) {
-        String token = jwtService.generateToken(userDetails, rememberMe);
+        String accessToken = jwtService.generateToken(userDetails, rememberMe);
         long expiresIn = rememberMe ? jwtService.getRememberMeExpirationMs() : jwtService.getExpirationMs();
-        return new AuthResponse("Bearer", token, expiresIn);
+        User user = userRepository.findByEmailAddressIgnoreCase(userDetails.getUsername())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+        RefreshToken refreshToken = refreshTokenService.create(user);
+        return new AuthResponse("Bearer", accessToken, expiresIn, refreshToken.getToken());
+    }
+
+    @Transactional
+    public AuthResponse refreshAccessToken(String refreshTokenValue) {
+        RefreshToken refreshToken = refreshTokenService.validate(refreshTokenValue);
+        User user = refreshToken.getUser();
+        refreshToken.setRevoked(true);
+        UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmailAddress());
+        String newAccessToken = jwtService.generateToken(userDetails, false);
+        RefreshToken newRefreshToken = refreshTokenService.create(user);
+        return new AuthResponse("Bearer", newAccessToken, jwtService.getExpirationMs(), newRefreshToken.getToken());
+    }
+
+    @Transactional
+    public void logout(String refreshTokenValue) {
+        refreshTokenService.revoke(refreshTokenValue);
     }
 }

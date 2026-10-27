@@ -1,4 +1,4 @@
 package com.ramellian_executive.travels.model;
 
-public record AuthResponse(String tokenType, String accessToken, long expiresIn) {
+public record AuthResponse(String tokenType, String accessToken, long expiresIn, String refreshToken) {
     }

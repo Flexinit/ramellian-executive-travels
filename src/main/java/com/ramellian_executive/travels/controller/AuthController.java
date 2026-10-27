@@ -113,6 +113,17 @@ public class AuthController {
         authService.verifyFirebasePhone(request, email);
     }
 
+    @PostMapping("/refresh")
+    public AuthResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return authService.refreshAccessToken(request.refreshToken());
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
+        authService.logout(request.refreshToken());
+        return ResponseEntity.ok().build();
+    }
+
 
 
 
