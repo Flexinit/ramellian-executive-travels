@@ -242,7 +242,7 @@ public class BotTools {
         UUID bookingId = UUID.fromString(args.get("booking_id").asText());
         var checkout = pesapalPaymentService.checkout(bookingId, auth(userEmail));
         return BotToolResult.text(
-                "Pay here: " + checkout.redirectUrl() + "\n(Link expires in 30 minutes)");
+                "Pay here: " + checkout.iframeUrl() + "\n(Link expires in 30 minutes)");
     }
 
     private BotToolResult getPaymentStatus(JsonNode args, String userEmail) {

@@ -171,7 +171,7 @@ public class PesapalClient {
         return str;
     }
 
-    public record PesapalOrder(String trackingId, String redirectUrl) {}
+    public record PesapalOrder(String trackingId, String iframeUrl) {}
     public record PesapalTransaction(int statusCode, String description, String receipt) {}
     public record PesapalDisbursementBatch(String batchNumber) {}
     public record PesapalDisbursementStatus(String batchNumber, String status) {}

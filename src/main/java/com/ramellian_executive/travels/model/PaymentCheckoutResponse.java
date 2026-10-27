@@ -3,7 +3,7 @@ package com.ramellian_executive.travels.model;
 import java.util.UUID;
 
 public record PaymentCheckoutResponse(UUID paymentId, String provider,
-                                      String orderTrackingId, String redirectUrl,
+                                      String orderTrackingId, String iframeUrl,
                                       String status,
                                       Double baseAmount,
                                       Double transactionFee,
@@ -13,9 +13,9 @@ public record PaymentCheckoutResponse(UUID paymentId, String provider,
                                       Double totalAmount) {
 
     public PaymentCheckoutResponse(UUID paymentId, String provider,
-                                   String orderTrackingId, String redirectUrl,
+                                   String orderTrackingId, String iframeUrl,
                                    String status) {
-        this(paymentId, provider, orderTrackingId, redirectUrl, status,
+        this(paymentId, provider, orderTrackingId, iframeUrl, status,
                 null, null, null, null, null, null);
     }
 }

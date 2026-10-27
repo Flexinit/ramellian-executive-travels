@@ -105,7 +105,7 @@ public class PesapalPaymentService {
         payment.setProvider("PESAPAL");
         payment.setProviderMerchantReference(merchantReference);
         payment.setProviderOrderTrackingId(order.trackingId());
-        payment.setTransactionReference(order.redirectUrl());
+        payment.setTransactionReference(order.iframeUrl());
         payment.setAmount(totalCharge);
         payment.setPlatformFee(fee);
         payment.setTransactionFee(txFee);
@@ -116,7 +116,7 @@ public class PesapalPaymentService {
         payment.setStatus(PaymentStatus.PENDING);
         Payment saved = paymentRepository.save(payment);
         return new PaymentCheckoutResponse(saved.getId(), "PESAPAL",
-                order.trackingId(), order.redirectUrl(), saved.getStatus().name());
+                order.trackingId(), order.iframeUrl(), saved.getStatus().name());
     }
 
     @Transactional
@@ -185,7 +185,7 @@ public class PesapalPaymentService {
             payment.setProvider("PESAPAL");
             payment.setProviderMerchantReference(merchantReference + "-B" + shortId(booking.getId()));
             payment.setProviderOrderTrackingId(order.trackingId());
-            payment.setTransactionReference(order.redirectUrl());
+            payment.setTransactionReference(order.iframeUrl());
             payment.setAmount(base + txFee + deliveryFee + driverCharge);
             payment.setPlatformFee(fee);
             payment.setTransactionFee(txFee);
@@ -200,7 +200,7 @@ public class PesapalPaymentService {
             }
         }
         return new PaymentCheckoutResponse(firstSaved.getId(), "PESAPAL",
-                order.trackingId(), order.redirectUrl(), firstSaved.getStatus().name());
+                order.trackingId(), order.iframeUrl(), firstSaved.getStatus().name());
     }
 
     @Transactional
@@ -237,11 +237,11 @@ public class PesapalPaymentService {
         overstayPayment.setProvider("PESAPAL");
         overstayPayment.setProviderMerchantReference(merchantReference);
         overstayPayment.setProviderOrderTrackingId(order.trackingId());
-        overstayPayment.setTransactionReference(order.redirectUrl());
+        overstayPayment.setTransactionReference(order.iframeUrl());
         overstayPayment.setStatus(PaymentStatus.PENDING);
         Payment saved = paymentRepository.save(overstayPayment);
         return new PaymentCheckoutResponse(saved.getId(), "PESAPAL",
-                order.trackingId(), order.redirectUrl(), saved.getStatus().name());
+                order.trackingId(), order.iframeUrl(), saved.getStatus().name());
     }
 
     @Transactional
