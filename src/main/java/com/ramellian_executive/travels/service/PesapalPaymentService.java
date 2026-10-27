@@ -35,6 +35,7 @@ public class PesapalPaymentService {
     private final PlatformSettingsService platformSettingsService;
     private final ReceiptService receiptService;
     private final ApplicationEventPublisher eventPublisher;
+    private final BookingService bookingService;
 
     @Autowired
     public PesapalPaymentService(BookingRepository bookingRepository, BookingGroupRepository bookingGroupRepository,
@@ -45,7 +46,8 @@ public class PesapalPaymentService {
                                  VerificationNotificationService notificationService,
                                  PlatformSettingsService platformSettingsService,
                                  ReceiptService receiptService,
-                                 ApplicationEventPublisher eventPublisher) {
+                                 ApplicationEventPublisher eventPublisher,
+                                 BookingService bookingService) {
         this.bookingRepository = bookingRepository;
         this.bookingGroupRepository = bookingGroupRepository;
         this.userRepository = userRepository;
@@ -58,6 +60,7 @@ public class PesapalPaymentService {
         this.platformSettingsService = platformSettingsService;
         this.receiptService = receiptService;
         this.eventPublisher = eventPublisher;
+        this.bookingService = bookingService;
     }
 
     @Transactional
@@ -312,7 +315,7 @@ public class PesapalPaymentService {
                     Booking booking = payment.getBooking();
                     booking.setStatus(BookingStatus.CONFIRMED);
                     bookingRepository.save(booking);
-                    notifyOwnerOnPayment(booking);
+                    bookingService.notifyBookingConfirmed(booking);
                     Payment savedGroup = paymentRepository.save(payment);
                     eventPublisher.publishEvent(new PaymentConfirmedEvent(savedGroup));
                 } else if (failed) {
@@ -357,7 +360,7 @@ public class PesapalPaymentService {
             if (booking.getStatus() == BookingStatus.PENDING) {
                 booking.setStatus(BookingStatus.CONFIRMED);
                 bookingRepository.save(booking);
-                notifyOwnerOnPayment(booking);
+                bookingService.notifyBookingConfirmed(booking);
             }
             Payment saved = paymentRepository.save(payment);
             Payment withReceipt = receiptService.generate(saved);
@@ -366,31 +369,6 @@ public class PesapalPaymentService {
         } else if (failed) {
             payment.setStatus(PaymentStatus.FAILED);
             paymentRepository.save(payment);
-        }
-    }
-
-    private void notifyOwnerOnPayment(Booking booking) {
-        if (booking == null || booking.getVehicle() == null) return;
-        Vehicle vehicle = booking.getVehicle();
-        User owner = vehicle.getOwner();
-        if (owner == null) return;
-        String vehicleTitle = (vehicle.getModel() != null ? vehicle.getModel() : "Vehicle")
-                + (vehicle.getRegistrationNumber() != null && !vehicle.getRegistrationNumber().isBlank()
-                ? " (" + vehicle.getRegistrationNumber() + ")" : "");
-        String renterName = booking.getUser() != null && booking.getUser().getFirstName() != null
-                ? booking.getUser().getFirstName() : "A customer";
-        if (appNotificationService != null) {
-            appNotificationService.createNotification(
-                    owner,
-                    "New Confirmed Booking for " + vehicleTitle,
-                    renterName + " has paid and confirmed a booking for " + vehicleTitle + ".",
-                    "BOOKING_CONFIRMED",
-                    booking.getId(),
-                    "BOOKING"
-            );
-        }
-        if (notificationService != null) {
-            notificationService.sendBookingNotification(booking, platformSettingsService.getCommissionRatePct());
         }
     }
 

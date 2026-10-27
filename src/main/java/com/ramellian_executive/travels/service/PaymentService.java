@@ -43,6 +43,7 @@ public class PaymentService {
     private final NotificationService appNotificationService;
     private final Path contractDirectory;
     private final boolean manualConfirmationEnabled;
+    private final BookingService bookingService;
 
     public PaymentService(BookingRepository bookingRepository, PaymentRepository paymentRepository,
                           BookingContractRepository contractRepository,
@@ -55,7 +56,8 @@ public class PaymentService {
                           com.ramellian_executive.travels.security.VerificationNotificationService notificationService,
                           NotificationService appNotificationService,
                           @Value("${app.payment.manual-confirmation-enabled:false}")
-                          boolean manualConfirmationEnabled) {
+                          boolean manualConfirmationEnabled,
+                          BookingService bookingService) {
         this.bookingRepository = bookingRepository;
         this.paymentRepository = paymentRepository;
         this.contractRepository = contractRepository;
@@ -68,6 +70,7 @@ public class PaymentService {
         this.notificationService = notificationService;
         this.appNotificationService = appNotificationService;
         this.manualConfirmationEnabled = manualConfirmationEnabled;
+        this.bookingService = bookingService;
     }
 
     @Transactional
@@ -123,6 +126,7 @@ public class PaymentService {
         bookingRepository.save(booking);
         Payment withReceipt = receiptService.generate(saved);
         notificationService.sendPaymentReceipt(withReceipt);
+        bookingService.notifyBookingConfirmed(booking);
 
         return ContractResponse.from(contract);
     }

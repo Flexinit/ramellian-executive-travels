@@ -139,41 +139,6 @@ public class BookingService {
         booking.setRenterContactPhone(renter.getPhoneNumber());
 
         Booking savedBooking = bookingRepository.save(booking);
-        if (appNotificationService != null) {
-            String vehicleTitle = (vehicle.getModel() != null ? vehicle.getModel() : "Vehicle")
-                    + (vehicle.getRegistrationNumber() != null && !vehicle.getRegistrationNumber().isBlank()
-                    ? " (" + vehicle.getRegistrationNumber() + ")" : "");
-            appNotificationService.createNotification(
-                    renter,
-                    "Booking Created for " + vehicleTitle,
-                    "Your booking for " + vehicleTitle + " has been placed successfully. Please complete payment to confirm.",
-                    "BOOKING_CREATED",
-                    savedBooking.getId(),
-                    "BOOKING"
-            );
-            String renterContact = buildContactSummary(renter);
-            String adminMessage = "New booking for " + vehicleTitle + " by " + renterContact
-                    + ". Booking ID: " + savedBooking.getId();
-            for (User admin : userRepository.findByRoles_RoleName("SUPER_ADMIN")) {
-                appNotificationService.createNotification(admin, "New Booking — " + vehicleTitle,
-                        adminMessage, "BOOKING_CREATED", savedBooking.getId(), "BOOKING");
-            }
-            for (User admin : userRepository.findByRoles_RoleName("ADMIN")) {
-                appNotificationService.createNotification(admin, "New Booking — " + vehicleTitle,
-                        adminMessage, "BOOKING_CREATED", savedBooking.getId(), "BOOKING");
-            }
-            User owner = vehicle.getOwner();
-            if (owner != null && !owner.getId().equals(renter.getId())) {
-                appNotificationService.createNotification(owner,
-                        "New Booking Request — Action Required",
-                        "A renter has requested to book " + vehicleTitle
-                                + ". Please review and accept or decline the booking.",
-                        "BOOKING_CREATED", savedBooking.getId(), "BOOKING");
-            }
-        }
-        // Email the owner immediately so they can act quickly
-        notificationService.sendBookingCreatedToOwner(savedBooking,
-                commissionRateFor(savedBooking));
         List<String> warnings = documentWarnings(renter, mode);
         BookingResponse response = BookingResponse.from(savedBooking,
                 commissionRateFor(savedBooking),
@@ -181,6 +146,54 @@ public class BookingService {
                 platformSettingsService.getDeliveryFlatFee(),
                 platformSettingsService.getDriverFlatCharge()).withoutOwnerPayout();
         return warnings.isEmpty() ? response : response.withWarnings(warnings);
+    }
+
+    @Transactional
+    public void notifyBookingConfirmed(Booking booking) {
+        User renter = booking.getUser();
+        Vehicle vehicle = booking.getVehicle();
+        String vehicleTitle = (vehicle != null && vehicle.getModel() != null ? vehicle.getModel() : "Vehicle")
+                + (vehicle != null && vehicle.getRegistrationNumber() != null && !vehicle.getRegistrationNumber().isBlank()
+                ? " (" + vehicle.getRegistrationNumber() + ")" : "");
+        if (appNotificationService != null && renter != null) {
+            appNotificationService.createNotification(renter,
+                    "Booking Confirmed — " + vehicleTitle,
+                    "Your booking for " + vehicleTitle + " is confirmed. Payment received.",
+                    "BOOKING_CONFIRMED", booking.getId(), "BOOKING");
+            User owner = vehicle != null ? vehicle.getOwner() : null;
+            if (owner != null && !owner.getId().equals(renter.getId())) {
+                String renterName = renter.getFirstName() != null ? renter.getFirstName() : "A customer";
+                appNotificationService.createNotification(owner,
+                        "New Confirmed Booking — " + vehicleTitle,
+                        renterName + " has paid and confirmed a booking for " + vehicleTitle + ".",
+                        "BOOKING_CONFIRMED", booking.getId(), "BOOKING");
+            }
+            for (User admin : userRepository.findByRoles_RoleName("SUPER_ADMIN")) {
+                appNotificationService.createNotification(admin,
+                        "Booking Confirmed — " + vehicleTitle,
+                        "A booking for " + vehicleTitle + " has been confirmed after payment.",
+                        "BOOKING_CONFIRMED", booking.getId(), "BOOKING");
+            }
+            for (User admin : userRepository.findByRoles_RoleName("ADMIN")) {
+                appNotificationService.createNotification(admin,
+                        "Booking Confirmed — " + vehicleTitle,
+                        "A booking for " + vehicleTitle + " has been confirmed after payment.",
+                        "BOOKING_CONFIRMED", booking.getId(), "BOOKING");
+            }
+        }
+        if (renter != null) {
+            notificationService.sendBookingCreatedToRenter(booking, documentWarnings(renter, booking.getBookingMode()));
+        }
+        if (vehicle != null && vehicle.getOwner() != null
+                && (renter == null || !vehicle.getOwner().getId().equals(renter.getId()))) {
+            notificationService.sendBookingNotification(booking, commissionRateFor(booking));
+        }
+        for (User admin : userRepository.findByRoles_RoleName("SUPER_ADMIN")) {
+            notificationService.sendBookingCreatedToAdmin(booking, admin);
+        }
+        for (User admin : userRepository.findByRoles_RoleName("ADMIN")) {
+            notificationService.sendBookingCreatedToAdmin(booking, admin);
+        }
     }
 
     private List<String> documentWarnings(User renter, BookingMode mode) {
