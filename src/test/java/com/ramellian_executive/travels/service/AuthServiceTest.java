@@ -1,5 +1,6 @@
 package com.ramellian_executive.travels.service;
 
+import com.ramellian_executive.travels.entity.RefreshToken;
 import com.ramellian_executive.travels.entity.User;
 import com.ramellian_executive.travels.entity.UserRole;
 import com.ramellian_executive.travels.model.*;
@@ -43,6 +44,7 @@ class AuthServiceTest {
     @Mock VerificationCodeService verificationCodeService;
     @Mock VerificationNotificationService notificationService;
     @Mock UserDetails userDetails;
+    @Mock RefreshTokenService refreshTokenService;
 
     @InjectMocks AuthService authService;
 
@@ -155,8 +157,12 @@ class AuthServiceTest {
         user.setEmailVerified(true);
         when(userRepository.findByEmailAddressIgnoreCase("person@example.com")).thenReturn(Optional.of(user));
         when(userDetailsService.loadUserByUsername("person@example.com")).thenReturn(userDetails);
+        when(userDetails.getUsername()).thenReturn("person@example.com");
         when(jwtService.generateToken(userDetails, false)).thenReturn("jwt");
         when(jwtService.getExpirationMs()).thenReturn(3600000L);
+        RefreshToken stubRefreshToken = new RefreshToken();
+        stubRefreshToken.setToken("refresh-token");
+        when(refreshTokenService.create(any())).thenReturn(stubRefreshToken);
 
         AuthResponse response = authService.login(new LoginRequest("person@example.com", "password123"));
 
