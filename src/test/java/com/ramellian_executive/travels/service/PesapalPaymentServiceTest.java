@@ -47,6 +47,7 @@ class PesapalPaymentServiceTest {
     @Mock VerificationNotificationService notificationService;
     @Mock Authentication authentication;
     @Mock BookingService bookingService;
+    @Mock PaymentTransactionService paymentTransactionService;
 
     private PesapalPaymentService service;
 
@@ -61,7 +62,7 @@ class PesapalPaymentServiceTest {
                 bookingRepository, bookingGroupRepository, userRepository,
                 paymentRepository, contractRepository, eventRepository, pesapalClient,
                 null, notificationService, platformSettingsService, receiptService, eventPublisher,
-                bookingService);
+                bookingService, paymentTransactionService);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────
