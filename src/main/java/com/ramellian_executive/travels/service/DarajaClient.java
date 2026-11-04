@@ -178,13 +178,23 @@ public class DarajaClient {
         }
     }
 
-    /** Extracts a value by name from Daraja's ResultParameters list. */
-    @SuppressWarnings("unchecked")
+    /** Extracts a value by key from Daraja B2C ResultParameters (uses "Key"/"Value"). */
     public static String extractResultParam(List<Map<String, Object>> params, String key) {
         if (params == null) return null;
         return params.stream()
                 .filter(p -> key.equals(p.get("Key")))
                 .map(p -> p.get("Value"))
+                .filter(v -> v != null)
+                .map(Object::toString)
+                .findFirst().orElse(null);
+    }
+
+    /** Extracts a value by name from an STK Push CallbackMetadata Item list (uses "Name"/"Value"). */
+    public static String extractStkItem(List<Map<String, Object>> items, String name) {
+        if (items == null) return null;
+        return items.stream()
+                .filter(item -> name.equals(item.get("Name")))
+                .map(item -> item.get("Value"))
                 .filter(v -> v != null)
                 .map(Object::toString)
                 .findFirst().orElse(null);

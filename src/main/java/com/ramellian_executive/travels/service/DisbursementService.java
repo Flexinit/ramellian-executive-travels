@@ -7,6 +7,7 @@ import com.ramellian_executive.travels.model.ManualDisbursementRequest;
 import com.ramellian_executive.travels.model.UpdateDisbursementRequest;
 import com.ramellian_executive.travels.repository.DisbursementRepository;
 import com.ramellian_executive.travels.repository.PaymentRepository;
+import com.ramellian_executive.travels.repository.PaymentTransactionRepository;
 import com.ramellian_executive.travels.security.VerificationNotificationService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -35,6 +36,8 @@ public class DisbursementService {
     private final NotificationService appNotificationService;
     private final PesapalClient pesapalClient;
     private final DarajaClient darajaClient;
+    private final PaymentTransactionService paymentTransactionService;
+    private final PaymentTransactionRepository paymentTransactionRepository;
 
     @Value("${app.disbursement.provider:PESAPAL}")
     private String disbursementProvider;
@@ -119,7 +122,22 @@ public class DisbursementService {
         disbursement.setProvider(usedProvider);
         disbursement.setNotes(request != null ? request.notes() : null);
 
-        return DisbursementResponse.from(disbursementRepository.save(disbursement));
+        Disbursement saved = disbursementRepository.save(disbursement);
+
+        PaymentTransactionType txType = "DARAJA".equalsIgnoreCase(usedProvider)
+                ? PaymentTransactionType.MPESA_B2C : PaymentTransactionType.PESAPAL_B2C;
+        UUID bookingIdForTx = (saved.getPayment() != null && saved.getPayment().getBooking() != null)
+                ? saved.getPayment().getBooking().getId() : null;
+        UUID paymentIdForTx = saved.getPayment() != null ? saved.getPayment().getId() : null;
+        paymentTransactionService.record(
+                txType, "PENDING",
+                saved.getAmount(),
+                saved.getOwnerPhone(), saved.getOwnerName(), saved.getOwnerEmail(),
+                narration,
+                bookingIdForTx, paymentIdForTx, saved.getId(), null,
+                null, reference, null);
+
+        return DisbursementResponse.from(saved);
     }
 
     @Transactional
@@ -145,12 +163,15 @@ public class DisbursementService {
         if ("COMPLETED".equals(pesapalStatus.status())) {
             disbursement.setStatus(DisbursementStatus.COMPLETED);
             Disbursement saved = disbursementRepository.save(disbursement);
+            updateTxLedger(saved, "SUCCESSFUL", null);
             notifyOwner(saved);
             return DisbursementResponse.from(saved);
         }
         if ("FAILED".equals(pesapalStatus.status())) {
             disbursement.setStatus(DisbursementStatus.FAILED);
-            return DisbursementResponse.from(disbursementRepository.save(disbursement));
+            Disbursement saved = disbursementRepository.save(disbursement);
+            updateTxLedger(saved, "FAILED", null);
+            return DisbursementResponse.from(saved);
         }
 
         return DisbursementResponse.from(disbursement);
@@ -216,11 +237,13 @@ public class DisbursementService {
                 if ("COMPLETED".equals(ps.status())) {
                     disbursement.setStatus(DisbursementStatus.COMPLETED);
                     disbursementRepository.save(disbursement);
+                    updateTxLedger(disbursement, "SUCCESSFUL", null);
                     notifyOwner(disbursement);
                     log.info("Disbursement {} marked COMPLETED", disbursement.getId());
                 } else if ("FAILED".equals(ps.status())) {
                     disbursement.setStatus(DisbursementStatus.FAILED);
                     disbursementRepository.save(disbursement);
+                    updateTxLedger(disbursement, "FAILED", null);
                     log.warn("Disbursement {} marked FAILED by Pesapal", disbursement.getId());
                 }
             } catch (Exception e) {
@@ -322,6 +345,16 @@ public class DisbursementService {
         return disbursementRepository
                 .findByOwnerEmailIgnoreCaseOrderByCreatedAtDesc(authentication.getName())
                 .stream().map(DisbursementResponse::from).toList();
+    }
+
+    private void updateTxLedger(Disbursement disbursement, String status, String message) {
+        try {
+            paymentTransactionRepository.findByDisbursementId(disbursement.getId())
+                    .ifPresent(tx -> paymentTransactionService.updateStatus(tx.getId(), status, null, message));
+        } catch (Exception e) {
+            log.warn("Failed to update payment transaction ledger for disbursement {}: {}",
+                    disbursement.getId(), e.getMessage());
+        }
     }
 
     private static String trim(String s) {

@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -33,6 +34,8 @@ public class MpesaPaymentService {
     private final NotificationService appNotificationService;
     private final VerificationNotificationService notificationService;
     private final ReceiptService receiptService;
+    private final PaymentTransactionService paymentTransactionService;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     public PaymentCheckoutResponse checkout(UUID bookingId, String phone, Authentication authentication) {
@@ -112,10 +115,14 @@ public class MpesaPaymentService {
     @SuppressWarnings("unchecked")
     public void handleStkCallback(Map<String, Object> payload) {
         try {
+            String rawJson = safeJson(payload);
             Map<String, Object> body = (Map<String, Object>) payload.get("Body");
             Map<String, Object> callback = (Map<String, Object>) body.get("stkCallback");
+
             String checkoutRequestId = String.valueOf(callback.get("CheckoutRequestID"));
+            String merchantRequestId = String.valueOf(callback.getOrDefault("MerchantRequestID", ""));
             int resultCode = ((Number) callback.get("ResultCode")).intValue();
+            String resultDesc = String.valueOf(callback.getOrDefault("ResultDesc", ""));
 
             List<Payment> payments = paymentRepository.findAllByProviderOrderTrackingId(checkoutRequestId);
             if (payments.isEmpty()) {
@@ -125,18 +132,35 @@ public class MpesaPaymentService {
             Payment payment = payments.get(0);
 
             if (resultCode != 0) {
-                String desc = String.valueOf(callback.getOrDefault("ResultDesc", "Failed"));
                 log.warn("STK Push failed for booking {} — ResultCode={} Desc={}",
-                        payment.getBooking().getId(), resultCode, desc);
+                        payment.getBooking().getId(), resultCode, resultDesc);
                 payment.setStatus(PaymentStatus.FAILED);
                 paymentRepository.save(payment);
+                PaymentTransaction tx = paymentTransactionService.record(
+                        PaymentTransactionType.MPESA_STK, "FAILED",
+                        payment.getAmount(),
+                        null, null, null,
+                        "STK Push for booking " + payment.getBooking().getId(),
+                        payment.getBooking().getId(), payment.getId(),
+                        null, null,
+                        null, merchantRequestId, resultDesc, rawJson);
+                if (tx != null) {
+                    paymentTransactionService.updateMpesaFields(tx.getId(),
+                            merchantRequestId, checkoutRequestId,
+                            resultCode, resultDesc,
+                            null, null, null, null);
+                }
                 return;
             }
 
             Map<String, Object> meta = (Map<String, Object>) callback.get("CallbackMetadata");
             List<Map<String, Object>> items = (List<Map<String, Object>>) meta.get("Item");
-            String receipt = DarajaClient.extractResultParam(items, "MpesaReceiptNumber");
-            String amountStr = DarajaClient.extractResultParam(items, "Amount");
+
+            String receipt     = DarajaClient.extractStkItem(items, "MpesaReceiptNumber");
+            String amountStr   = DarajaClient.extractStkItem(items, "Amount");
+            String txDate      = DarajaClient.extractStkItem(items, "TransactionDate");
+            String mpesaPhone  = DarajaClient.extractStkItem(items, "PhoneNumber");
+            String balance     = DarajaClient.extractStkItem(items, "Balance");
 
             payment.setStatus(PaymentStatus.SUCCESSFUL);
             payment.setProviderReceipt(receipt);
@@ -152,6 +176,24 @@ public class MpesaPaymentService {
             }
 
             log.info("STK Push succeeded for booking {} — receipt={}", booking.getId(), receipt);
+
+            User renter = booking.getUser();
+            PaymentTransaction tx = paymentTransactionService.record(
+                    PaymentTransactionType.MPESA_STK, "SUCCESSFUL",
+                    payment.getAmount(),
+                    renter.getPhoneNumber(),
+                    trim(renter.getFirstName()) + " " + trim(renter.getLastName()),
+                    renter.getEmailAddress(),
+                    "STK Push for booking " + booking.getId(),
+                    booking.getId(), payment.getId(),
+                    null, null,
+                    receipt, merchantRequestId, resultDesc, rawJson);
+            if (tx != null) {
+                paymentTransactionService.updateMpesaFields(tx.getId(),
+                        merchantRequestId, checkoutRequestId,
+                        resultCode, resultDesc,
+                        receipt, txDate, mpesaPhone, balance);
+            }
 
             try { receiptService.generate(payment); } catch (Exception e) {
                 log.warn("Receipt generation failed for payment {}", payment.getId(), e);
@@ -169,6 +211,12 @@ public class MpesaPaymentService {
                 .findByBookingIdAndChargeType(bookingId, PaymentChargeType.RENTAL)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found"));
         return PaymentStatusResponse.from(payment);
+    }
+
+    private static String trim(String s) { return s != null ? s.trim() : ""; }
+
+    private String safeJson(Object obj) {
+        try { return objectMapper.writeValueAsString(obj); } catch (Exception e) { return null; }
     }
 
     private PaymentCheckoutResponse checkoutResponse(Payment p, Double base,

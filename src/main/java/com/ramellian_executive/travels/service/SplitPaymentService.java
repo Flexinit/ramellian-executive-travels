@@ -36,6 +36,7 @@ public class SplitPaymentService {
     private final ReceiptService receiptService;
     private final NotificationService notificationService;
     private final UserRepository userRepository;
+    private final PaymentTransactionService paymentTransactionService;
 
     @Transactional
     public SplitPaymentResponse initiate(UUID bookingId, SplitPaymentRequest request,
@@ -201,10 +202,20 @@ public class SplitPaymentService {
                 .findByProviderOrderTrackingId(checkoutRequestId).orElse(null);
         if (contribution == null) return false;
 
+        UUID bookingId = contribution.getSplitGroup().getBooking().getId();
+
         if (resultCode != 0) {
             contribution.setStatus(SplitContributionStatus.FAILED);
             contributionRepository.save(contribution);
             log.warn("Split contribution {} FAILED — ResultCode={}", contribution.getId(), resultCode);
+            paymentTransactionService.record(
+                    PaymentTransactionType.MPESA_SPLIT_STK, "FAILED",
+                    contribution.getAmount(),
+                    contribution.getPayerPhone(), contribution.getPayerName(), contribution.getPayerEmail(),
+                    "Split payment contribution for booking " + bookingId,
+                    bookingId, null, null, contribution.getId(),
+                    null, contribution.getProviderMerchantRequestId(),
+                    "ResultCode=" + resultCode);
             return true;
         }
 
@@ -212,6 +223,13 @@ public class SplitPaymentService {
         contribution.setProviderReceipt(receipt);
         contributionRepository.save(contribution);
         log.info("Split contribution {} PAID — receipt={}", contribution.getId(), receipt);
+        paymentTransactionService.record(
+                PaymentTransactionType.MPESA_SPLIT_STK, "SUCCESSFUL",
+                contribution.getAmount(),
+                contribution.getPayerPhone(), contribution.getPayerName(), contribution.getPayerEmail(),
+                "Split payment contribution for booking " + bookingId,
+                bookingId, null, null, contribution.getId(),
+                receipt, contribution.getProviderMerchantRequestId(), null);
 
         checkAndFinalize(contribution.getSplitGroup());
         return true;

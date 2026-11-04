@@ -36,6 +36,7 @@ public class PesapalPaymentService {
     private final ReceiptService receiptService;
     private final ApplicationEventPublisher eventPublisher;
     private final BookingService bookingService;
+    private final PaymentTransactionService paymentTransactionService;
 
     @Autowired
     public PesapalPaymentService(BookingRepository bookingRepository, BookingGroupRepository bookingGroupRepository,
@@ -47,7 +48,8 @@ public class PesapalPaymentService {
                                  PlatformSettingsService platformSettingsService,
                                  ReceiptService receiptService,
                                  ApplicationEventPublisher eventPublisher,
-                                 BookingService bookingService) {
+                                 BookingService bookingService,
+                                 PaymentTransactionService paymentTransactionService) {
         this.bookingRepository = bookingRepository;
         this.bookingGroupRepository = bookingGroupRepository;
         this.userRepository = userRepository;
@@ -61,6 +63,7 @@ public class PesapalPaymentService {
         this.receiptService = receiptService;
         this.eventPublisher = eventPublisher;
         this.bookingService = bookingService;
+        this.paymentTransactionService = paymentTransactionService;
     }
 
     @Transactional
@@ -363,14 +366,37 @@ public class PesapalPaymentService {
                 bookingService.notifyBookingConfirmed(booking);
             }
             Payment saved = paymentRepository.save(payment);
+            User renter = booking.getUser();
+            paymentTransactionService.record(
+                    PaymentTransactionType.PESAPAL_CARD, "SUCCESSFUL",
+                    saved.getAmount(),
+                    renter.getPhoneNumber(),
+                    trim(renter.getFirstName()) + " " + trim(renter.getLastName()),
+                    renter.getEmailAddress(),
+                    "PesaPal payment for booking " + booking.getId(),
+                    booking.getId(), saved.getId(), null, null,
+                    transaction.receipt(), merchantReference, transaction.description());
             Payment withReceipt = receiptService.generate(saved);
             notificationService.sendPaymentReceipt(withReceipt);
             eventPublisher.publishEvent(new PaymentConfirmedEvent(withReceipt));
         } else if (failed) {
             payment.setStatus(PaymentStatus.FAILED);
+            Booking booking = payment.getBooking();
             paymentRepository.save(payment);
+            User renter = booking.getUser();
+            paymentTransactionService.record(
+                    PaymentTransactionType.PESAPAL_CARD, "FAILED",
+                    payment.getAmount(),
+                    renter.getPhoneNumber(),
+                    trim(renter.getFirstName()) + " " + trim(renter.getLastName()),
+                    renter.getEmailAddress(),
+                    "PesaPal payment for booking " + booking.getId(),
+                    booking.getId(), payment.getId(), null, null,
+                    null, merchantReference, transaction.description());
         }
     }
+
+    private static String trim(String s) { return s != null ? s.trim() : ""; }
 
     @Transactional
     public PaymentStatusResponse status(UUID bookingId, Authentication authentication) {
