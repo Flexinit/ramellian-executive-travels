@@ -145,12 +145,18 @@ public class MpesaPaymentService {
             }
             paymentRepository.save(payment);
 
-            log.info("STK Push succeeded for booking {} — receipt={}", payment.getBooking().getId(), receipt);
+            Booking booking = payment.getBooking();
+            if (booking.getStatus() == BookingStatus.PENDING) {
+                booking.setStatus(BookingStatus.CONFIRMED);
+                bookingRepository.save(booking);
+            }
+
+            log.info("STK Push succeeded for booking {} — receipt={}", booking.getId(), receipt);
 
             try { receiptService.generate(payment); } catch (Exception e) {
                 log.warn("Receipt generation failed for payment {}", payment.getId(), e);
             }
-            bookingService.notifyBookingConfirmed(payment.getBooking());
+            bookingService.notifyBookingConfirmed(booking);
 
         } catch (Exception e) {
             log.error("Error processing STK callback: {}", e.getMessage(), e);

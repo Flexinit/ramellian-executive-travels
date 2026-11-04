@@ -64,7 +64,7 @@ public class PlatformSettingsService {
     @Transactional(readOnly = true)
     public double getPesapalTransactionFeeRatePct() {
         return repository.findFirstByOrderByCreatedAtDesc()
-                .map(PlatformSettings::getPesapalTransactionFeeRatePct)
+                .map(s -> s.isPesapalTransactionFeeEnabled() ? s.getPesapalTransactionFeeRatePct() : 0.0)
                 .orElse(1.5);
     }
 
@@ -85,28 +85,28 @@ public class PlatformSettingsService {
     @Transactional(readOnly = true)
     public double getMpesaStkFee() {
         return repository.findFirstByOrderByCreatedAtDesc()
-                .map(PlatformSettings::getMpesaStkFee)
+                .map(s -> s.isMpesaStkFeeEnabled() ? s.getMpesaStkFee() : 0.0)
                 .orElse(33.0);
     }
 
     @Transactional(readOnly = true)
     public double getMpesaB2cFee() {
         return repository.findFirstByOrderByCreatedAtDesc()
-                .map(PlatformSettings::getMpesaB2cFee)
+                .map(s -> s.isMpesaB2cFeeEnabled() ? s.getMpesaB2cFee() : 0.0)
                 .orElse(50.0);
     }
 
     @Transactional(readOnly = true)
     public double getDeliveryFlatFee() {
         return repository.findFirstByOrderByCreatedAtDesc()
-                .map(PlatformSettings::getDeliveryFlatFee)
+                .map(s -> s.isDeliveryFeeEnabled() ? s.getDeliveryFlatFee() : 0.0)
                 .orElse(0.0);
     }
 
     @Transactional(readOnly = true)
     public double getDriverFlatCharge() {
         return repository.findFirstByOrderByCreatedAtDesc()
-                .map(PlatformSettings::getDriverFlatCharge)
+                .map(s -> s.isDriverChargeEnabled() ? s.getDriverFlatCharge() : 0.0)
                 .orElse(0.0);
     }
 
@@ -168,12 +168,22 @@ public class PlatformSettingsService {
             settings.setPesapalTransactionFeeRatePct(request.pesapalTransactionFeeRatePct());
         if (request.deliveryFlatFee() != null)
             settings.setDeliveryFlatFee(request.deliveryFlatFee());
+        if (request.deliveryFeeEnabled() != null)
+            settings.setDeliveryFeeEnabled(request.deliveryFeeEnabled());
         if (request.driverFlatCharge() != null)
             settings.setDriverFlatCharge(request.driverFlatCharge());
+        if (request.driverChargeEnabled() != null)
+            settings.setDriverChargeEnabled(request.driverChargeEnabled());
+        if (request.pesapalTransactionFeeEnabled() != null)
+            settings.setPesapalTransactionFeeEnabled(request.pesapalTransactionFeeEnabled());
         if (request.mpesaStkFee() != null)
             settings.setMpesaStkFee(request.mpesaStkFee());
+        if (request.mpesaStkFeeEnabled() != null)
+            settings.setMpesaStkFeeEnabled(request.mpesaStkFeeEnabled());
         if (request.mpesaB2cFee() != null)
             settings.setMpesaB2cFee(request.mpesaB2cFee());
+        if (request.mpesaB2cFeeEnabled() != null)
+            settings.setMpesaB2cFeeEnabled(request.mpesaB2cFeeEnabled());
         if (request.overstayGracePeriodHours() != null && request.overstayGracePeriodHours() >= 0)
             settings.setOverstayGracePeriodHours(request.overstayGracePeriodHours());
         if (request.overstayRateMultiplier() != null && request.overstayRateMultiplier() >= 1.0)

@@ -11,9 +11,14 @@ public record PlatformSettingsResponse(
         int multiDayThresholdDays,
         double pesapalTransactionFeeRatePct,
         double deliveryFlatFee,
+        boolean deliveryFeeEnabled,
         double driverFlatCharge,
+        boolean driverChargeEnabled,
         double mpesaStkFee,
+        boolean mpesaStkFeeEnabled,
         double mpesaB2cFee,
+        boolean mpesaB2cFeeEnabled,
+        boolean pesapalTransactionFeeEnabled,
         int overstayGracePeriodHours,
         double overstayRateMultiplier,
         boolean botAssistantEnabled,
@@ -34,8 +39,10 @@ public record PlatformSettingsResponse(
     public static PlatformSettingsResponse from(PlatformSettings s) {
         return new PlatformSettingsResponse(s.getId(), s.getCommissionRatePct(),
                 s.getMultiDayCommissionRatePct(), s.getMultiDayThresholdDays(),
-                s.getPesapalTransactionFeeRatePct(), s.getDeliveryFlatFee(), s.getDriverFlatCharge(),
-                s.getMpesaStkFee(), s.getMpesaB2cFee(),
+                s.getPesapalTransactionFeeRatePct(), s.getDeliveryFlatFee(), s.isDeliveryFeeEnabled(),
+                s.getDriverFlatCharge(), s.isDriverChargeEnabled(),
+                s.getMpesaStkFee(), s.isMpesaStkFeeEnabled(), s.getMpesaB2cFee(), s.isMpesaB2cFeeEnabled(),
+                s.isPesapalTransactionFeeEnabled(),
                 s.getOverstayGracePeriodHours(), s.getOverstayRateMultiplier(),
                 s.isBotAssistantEnabled(),
                 s.isPickupReminderEnabled(), s.isPickupReminderRenterEnabled(),
@@ -46,8 +53,8 @@ public record PlatformSettingsResponse(
     }
 
     public static PlatformSettingsResponse defaults() {
-        return new PlatformSettingsResponse(null, 15.0, 10.0, 2, 1.5, 0.0, 0.0,
-                33.0, 50.0, 1, 1.5,
+        return new PlatformSettingsResponse(null, 15.0, 10.0, 2, 1.5, 0.0, true, 0.0, true,
+                33.0, true, 50.0, true, true, 1, 1.5,
                 true, true, true, true, 60,
                 null, null, null, null, null, null, null, null, null);
     }

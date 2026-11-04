@@ -25,8 +25,14 @@ public class PlatformSettings extends AbstractEntity {
     @Column(name = "mpesa_stk_fee", nullable = false, columnDefinition = "float8 not null default 33.0")
     private double mpesaStkFee = 33.0;
 
+    @Column(name = "mpesa_stk_fee_enabled", nullable = false, columnDefinition = "boolean not null default true")
+    private boolean mpesaStkFeeEnabled = true;
+
     @Column(name = "mpesa_b2c_fee", nullable = false, columnDefinition = "float8 not null default 50.0")
     private double mpesaB2cFee = 50.0;
+
+    @Column(name = "mpesa_b2c_fee_enabled", nullable = false, columnDefinition = "boolean not null default true")
+    private boolean mpesaB2cFeeEnabled = true;
 
     /** Hours of overstay after which a full extra day is charged. Default: any overstay = 1 day. */
     @Column(name = "overstay_grace_period_hours", nullable = false, columnDefinition = "integer not null default 1")
@@ -39,8 +45,17 @@ public class PlatformSettings extends AbstractEntity {
     @Column(name = "delivery_flat_fee", nullable = false)
     private double deliveryFlatFee = 0.0;
 
+    @Column(name = "delivery_fee_enabled", nullable = false, columnDefinition = "boolean not null default true")
+    private boolean deliveryFeeEnabled = true;
+
     @Column(name = "driver_flat_charge", nullable = false)
     private double driverFlatCharge = 0.0;
+
+    @Column(name = "driver_charge_enabled", nullable = false, columnDefinition = "boolean not null default true")
+    private boolean driverChargeEnabled = true;
+
+    @Column(name = "pesapal_transaction_fee_enabled", nullable = false, columnDefinition = "boolean not null default true")
+    private boolean pesapalTransactionFeeEnabled = true;
 
     @Column(name = "bot_assistant_enabled", nullable = false, columnDefinition = "boolean not null default true")
     private boolean botAssistantEnabled = true;

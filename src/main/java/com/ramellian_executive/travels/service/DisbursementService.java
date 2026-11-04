@@ -90,6 +90,7 @@ public class DisbursementService {
                 ? disbursement.getPayment().getBooking().getId().toString() : disbursement.getId().toString());
 
         String reference;
+        String usedProvider;
         if ("DARAJA".equalsIgnoreCase(disbursementProvider) && darajaClient.isConfigured()) {
             DarajaClient.B2cResult b2c = darajaClient.b2c(
                     disbursement.getId().toString(),
@@ -98,6 +99,7 @@ public class DisbursementService {
                     disbursement.getAmount(),
                     narration);
             reference = b2c.originatorConversationId();
+            usedProvider = "DARAJA";
             log.info("Daraja B2C triggered for disbursement {} — originatorConversationId={}", disbursement.getId(), reference);
         } else {
             PesapalClient.PesapalDisbursementBatch batch = pesapalClient.disburse(
@@ -107,12 +109,14 @@ public class DisbursementService {
                     disbursement.getAmount(),
                     narration);
             reference = batch.batchNumber();
+            usedProvider = "PESAPAL";
         }
 
         disbursement.setStatus(DisbursementStatus.PROCESSING);
         disbursement.setTriggeredBy(authentication.getName());
         disbursement.setTriggeredAt(ZonedDateTime.now());
         disbursement.setReference(reference);
+        disbursement.setProvider(usedProvider);
         disbursement.setNotes(request != null ? request.notes() : null);
 
         return DisbursementResponse.from(disbursementRepository.save(disbursement));
@@ -125,6 +129,10 @@ public class DisbursementService {
 
         if (disbursement.getStatus() == DisbursementStatus.COMPLETED) {
             return DisbursementResponse.from(disbursement);
+        }
+        if ("DARAJA".equalsIgnoreCase(disbursement.getProvider())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Daraja disbursements are updated via B2C callback — manual sync not supported");
         }
         if (disbursement.getReference() == null || disbursement.getReference().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -202,6 +210,7 @@ public class DisbursementService {
         for (Disbursement disbursement : processing) {
             try {
                 if (disbursement.getReference() == null || disbursement.getReference().isBlank()) continue;
+                if ("DARAJA".equalsIgnoreCase(disbursement.getProvider())) continue;
                 PesapalClient.PesapalDisbursementStatus ps =
                         pesapalClient.getDisbursementStatus(disbursement.getReference());
                 if ("COMPLETED".equals(ps.status())) {

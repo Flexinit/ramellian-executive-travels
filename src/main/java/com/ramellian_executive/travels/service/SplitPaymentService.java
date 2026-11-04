@@ -228,8 +228,14 @@ public class SplitPaymentService {
         if (allPaid) {
             group.setStatus(SplitPaymentGroupStatus.COMPLETE);
 
+            Booking booking = group.getBooking();
+            if (booking.getStatus() == BookingStatus.PENDING) {
+                booking.setStatus(BookingStatus.CONFIRMED);
+                bookingRepository.save(booking);
+            }
+
             Payment payment = new Payment();
-            payment.setBooking(group.getBooking());
+            payment.setBooking(booking);
             payment.setChargeType(PaymentChargeType.RENTAL);
             payment.setProvider("MPESA_SPLIT");
             payment.setPaymentMethod("MPESA_SPLIT");
@@ -252,12 +258,12 @@ public class SplitPaymentService {
             groupRepository.save(group);
 
             log.info("Split payment complete for booking {} — master payment {}",
-                    group.getBooking().getId(), savedPayment.getId());
+                    booking.getId(), savedPayment.getId());
 
             try { receiptService.generate(savedPayment); } catch (Exception e) {
                 log.warn("Receipt generation failed for split payment {}", savedPayment.getId(), e);
             }
-            bookingService.notifyBookingConfirmed(group.getBooking());
+            bookingService.notifyBookingConfirmed(booking);
 
         } else if (anyPaid) {
             group.setStatus(SplitPaymentGroupStatus.PARTIAL);

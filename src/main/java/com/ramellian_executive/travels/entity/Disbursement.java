@@ -47,4 +47,8 @@ public class Disbursement extends AbstractEntity {
 
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
+
+    /** "PESAPAL" or "DARAJA" — determines how status is synced. */
+    @Column(name = "provider")
+    private String provider;
 }
