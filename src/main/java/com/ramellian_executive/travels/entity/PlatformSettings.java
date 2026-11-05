@@ -98,4 +98,8 @@ public class PlatformSettings extends AbstractEntity {
 
     @Column(name = "tiktok")
     private String tiktok;
+
+    /** Payout provider used for owner disbursements. DARAJA = M-Pesa B2C. PESAPAL = Pesapal. */
+    @Column(name = "disbursement_provider", nullable = false, columnDefinition = "varchar(20)")
+    private String disbursementProvider = "DARAJA";
 }

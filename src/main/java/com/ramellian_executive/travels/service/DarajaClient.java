@@ -35,6 +35,8 @@ public class DarajaClient {
     private final String stkCallbackUrl;
     private final String b2cResultUrl;
     private final String b2cQueueTimeoutUrl;
+    private final String c2bConfirmationUrl;
+    private final String c2bValidationUrl;
 
     public DarajaClient(
             @Value("${app.daraja.base-url:https://sandbox.safaricom.co.ke}") String baseUrl,
@@ -46,7 +48,9 @@ public class DarajaClient {
             @Value("${app.daraja.security-credential:}") String securityCredential,
             @Value("${app.daraja.stk-callback-url:}") String stkCallbackUrl,
             @Value("${app.daraja.b2c-result-url:}") String b2cResultUrl,
-            @Value("${app.daraja.b2c-queue-timeout-url:}") String b2cQueueTimeoutUrl) {
+            @Value("${app.daraja.b2c-queue-timeout-url:}") String b2cQueueTimeoutUrl,
+            @Value("${app.daraja.c2b-confirmation-url:}") String c2bConfirmationUrl,
+            @Value("${app.daraja.c2b-validation-url:}") String c2bValidationUrl) {
         this.baseUrl = baseUrl;
         this.consumerKey = consumerKey;
         this.consumerSecret = consumerSecret;
@@ -57,11 +61,15 @@ public class DarajaClient {
         this.stkCallbackUrl = stkCallbackUrl;
         this.b2cResultUrl = b2cResultUrl;
         this.b2cQueueTimeoutUrl = b2cQueueTimeoutUrl;
+        this.c2bConfirmationUrl = c2bConfirmationUrl;
+        this.c2bValidationUrl = c2bValidationUrl;
     }
 
     public boolean isConfigured() {
         return !consumerKey.isBlank() && !consumerSecret.isBlank() && !passkey.isBlank();
     }
+
+    public String getShortcode() { return shortcode; }
 
     /** Initiates an STK Push prompt on the customer's phone. Returns the CheckoutRequestID. */
     public StkPushResult stkPush(String phone, double amount, String accountRef, String description) {
@@ -93,6 +101,25 @@ public class DarajaClient {
         return new StkPushResult(
                 String.valueOf(resp.get("CheckoutRequestID")),
                 String.valueOf(resp.get("MerchantRequestID")));
+    }
+
+    /**
+     * Registers the C2B confirmation and validation URLs with Safaricom.
+     * Must be called once per environment (or whenever URLs change).
+     * ResponseType "Completed" means auto-confirm all — no validation needed.
+     */
+    public void registerC2bUrls() {
+        if (c2bConfirmationUrl.isBlank()) {
+            throw new IllegalStateException("C2B confirmation URL is not configured");
+        }
+        String token = fetchToken();
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("ShortCode", shortcode);
+        body.put("ResponseType", c2bValidationUrl.isBlank() ? "Completed" : "Cancelled");
+        body.put("ConfirmationURL", c2bConfirmationUrl);
+        body.put("ValidationURL", c2bValidationUrl.isBlank() ? c2bConfirmationUrl : c2bValidationUrl);
+        Map<String, Object> resp = post(baseUrl + "/mpesa/c2b/v1/registerurl", token, body);
+        log.info("C2B URL registration response: {}", resp);
     }
 
     /** Queries STK Push transaction status. */

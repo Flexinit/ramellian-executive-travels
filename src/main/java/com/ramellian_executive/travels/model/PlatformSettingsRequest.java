@@ -33,5 +33,6 @@ public record PlatformSettingsRequest(
         String instagram,
         String whatsapp,
         String xTwitter,
-        String tiktok
+        String tiktok,
+        String disbursementProvider
 ) {}

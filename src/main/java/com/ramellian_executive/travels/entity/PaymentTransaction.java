@@ -46,12 +46,21 @@ public class PaymentTransaction extends AbstractEntity {
     @Column(name = "internal_reference")
     private String internalReference;
 
-    /** Phone number of the payer (C2B) or recipient (B2C). */
+    /** Actual phone confirmed by M-Pesa callback (PhoneNumber from CallbackMetadata). */
     @Column(name = "phone")
     private String phone;
 
+    /** Renter's stored phone number (from user profile at time of payment). */
+    @Column(name = "renter_phone")
+    private String renterPhone;
+
+    /** Name from M-Pesa callback (or payer name from split request). */
     @Column(name = "party_name")
     private String partyName;
+
+    /** Renter's stored full name (from user profile at time of payment). */
+    @Column(name = "renter_name")
+    private String renterName;
 
     @Column(name = "email")
     private String email;

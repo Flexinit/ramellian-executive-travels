@@ -10,5 +10,7 @@ public enum PaymentTransactionType {
     /** PesaPal card / online payment — customer pays the platform (C2B). */
     PESAPAL_CARD,
     /** PesaPal disbursement — platform pays out to vehicle owner. */
-    PESAPAL_B2C
+    PESAPAL_B2C,
+    /** M-Pesa C2B — customer pays via Paybill/Till (no STK prompt). */
+    MPESA_C2B
 }

@@ -111,6 +111,14 @@ public class PlatformSettingsService {
     }
 
     @Transactional(readOnly = true)
+    public String getDisbursementProvider() {
+        return repository.findFirstByOrderByCreatedAtDesc()
+                .map(PlatformSettings::getDisbursementProvider)
+                .filter(p -> p != null && !p.isBlank())
+                .orElse("DARAJA");
+    }
+
+    @Transactional(readOnly = true)
     public boolean isBotAssistantEnabled() {
         return repository.findFirstByOrderByCreatedAtDesc()
                 .map(PlatformSettings::isBotAssistantEnabled)
@@ -216,6 +224,12 @@ public class PlatformSettingsService {
             settings.setXTwitter(blank(request.xTwitter()) ? null : request.xTwitter().trim());
         if (request.tiktok() != null)
             settings.setTiktok(blank(request.tiktok()) ? null : request.tiktok().trim());
+        if (request.disbursementProvider() != null && !request.disbursementProvider().isBlank()) {
+            String provider = request.disbursementProvider().trim().toUpperCase();
+            if (!"DARAJA".equals(provider) && !"PESAPAL".equals(provider))
+                throw new IllegalArgumentException("disbursementProvider must be DARAJA or PESAPAL");
+            settings.setDisbursementProvider(provider);
+        }
         return PlatformSettingsResponse.from(repository.save(settings));
     }
 

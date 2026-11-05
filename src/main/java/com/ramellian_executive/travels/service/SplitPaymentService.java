@@ -14,8 +14,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -37,6 +39,7 @@ public class SplitPaymentService {
     private final NotificationService notificationService;
     private final UserRepository userRepository;
     private final PaymentTransactionService paymentTransactionService;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     public SplitPaymentResponse initiate(UUID bookingId, SplitPaymentRequest request,
@@ -144,7 +147,7 @@ public class SplitPaymentService {
         return SplitPaymentResponse.from(savedGroup, contributions);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public SplitPaymentResponse getStatus(UUID bookingId) {
         SplitPaymentGroup group = groupRepository
                 .findByBookingIdAndStatusIn(bookingId,
@@ -155,6 +158,40 @@ public class SplitPaymentService {
                         "No active split payment found for this booking"));
         List<SplitPaymentContribution> contributions = contributionRepository
                 .findBySplitGroupId(group.getId());
+
+        // Poll Safaricom for any PROCESSING contributions that never got a callback
+        boolean anyResolved = false;
+        for (SplitPaymentContribution c : contributions) {
+            if (c.getStatus() == SplitContributionStatus.PROCESSING
+                    && c.getProviderOrderTrackingId() != null) {
+                try {
+                    DarajaClient.StkQueryResult query = darajaClient.queryStkStatus(
+                            c.getProviderOrderTrackingId());
+                    int code = Integer.parseInt(query.resultCode());
+                    if (code == 0) {
+                        c.setStatus(SplitContributionStatus.PAID);
+                        contributionRepository.save(c);
+                        paymentTransactionService.record(
+                                PaymentTransactionType.MPESA_SPLIT_STK, "SUCCESSFUL",
+                                c.getAmount(), c.getPayerPhone(), c.getPayerName(), c.getPayerEmail(),
+                                "Split STK poll-resolved for booking " + bookingId,
+                                bookingId, null, null, c.getId(),
+                                null, c.getProviderMerchantRequestId(), query.resultDesc());
+                        log.info("Split contribution {} poll-resolved PAID for booking {}", c.getId(), bookingId);
+                        anyResolved = true;
+                    } else if (code != 1) {
+                        c.setStatus(SplitContributionStatus.FAILED);
+                        contributionRepository.save(c);
+                        anyResolved = true;
+                    }
+                } catch (Exception e) {
+                    log.debug("STK query skipped for split contribution {}: {}", c.getId(), e.getMessage());
+                }
+            }
+        }
+        if (anyResolved) checkAndFinalize(group);
+
+        contributions = contributionRepository.findBySplitGroupId(group.getId());
         return SplitPaymentResponse.from(group, contributions);
     }
 
@@ -193,46 +230,98 @@ public class SplitPaymentService {
     }
 
     /**
-     * Called from MpesaController.stkCallback() when a CheckoutRequestID
-     * belongs to a split contribution rather than a regular payment.
+     * Called from MpesaController.stkCallback() with the raw Safaricom payload.
+     * Returns false if the CheckoutRequestID doesn't belong to any split contribution,
+     * so the controller can fall through to the regular payment handler.
      */
     @Transactional
-    public boolean handleStkCallback(String checkoutRequestId, int resultCode, String receipt) {
-        SplitPaymentContribution contribution = contributionRepository
-                .findByProviderOrderTrackingId(checkoutRequestId).orElse(null);
-        if (contribution == null) return false;
+    @SuppressWarnings("unchecked")
+    public boolean handleStkCallback(Map<String, Object> payload) {
+        try {
+            Map<String, Object> body     = (Map<String, Object>) payload.get("Body");
+            Map<String, Object> callback = (Map<String, Object>) body.get("stkCallback");
+            String checkoutRequestId     = String.valueOf(callback.get("CheckoutRequestID"));
+            String merchantRequestId     = String.valueOf(callback.getOrDefault("MerchantRequestID", ""));
+            int resultCode               = ((Number) callback.get("ResultCode")).intValue();
+            String resultDesc            = String.valueOf(callback.getOrDefault("ResultDesc", ""));
 
-        UUID bookingId = contribution.getSplitGroup().getBooking().getId();
+            SplitPaymentContribution contribution = contributionRepository
+                    .findByProviderOrderTrackingId(checkoutRequestId).orElse(null);
+            if (contribution == null) return false;
 
-        if (resultCode != 0) {
-            contribution.setStatus(SplitContributionStatus.FAILED);
+            String rawJson = safeJson(payload);
+            UUID bookingId = contribution.getSplitGroup().getBooking().getId();
+
+            if (resultCode != 0) {
+                contribution.setStatus(SplitContributionStatus.FAILED);
+                contributionRepository.save(contribution);
+                log.warn("Split contribution {} FAILED — ResultCode={} Desc={}", contribution.getId(), resultCode, resultDesc);
+                PaymentTransaction tx = paymentTransactionService.record(
+                        PaymentTransactionType.MPESA_SPLIT_STK, "FAILED",
+                        contribution.getAmount(),
+                        contribution.getPayerPhone(), contribution.getPayerName(), contribution.getPayerEmail(),
+                        "Split payment contribution for booking " + bookingId,
+                        bookingId, null, null, contribution.getId(),
+                        null, merchantRequestId, resultDesc, rawJson);
+                if (tx != null) {
+                    paymentTransactionService.updateMpesaFields(tx.getId(),
+                            merchantRequestId, checkoutRequestId, resultCode, resultDesc,
+                            null, null, null, null);
+                }
+                return true;
+            }
+
+            Map<String, Object> meta = (Map<String, Object>) callback.get("CallbackMetadata");
+            List<Map<String, Object>> items = (List<Map<String, Object>>) meta.get("Item");
+            String receipt    = DarajaClient.extractStkItem(items, "MpesaReceiptNumber");
+            String amountStr  = DarajaClient.extractStkItem(items, "Amount");
+            String txDate     = DarajaClient.extractStkItem(items, "TransactionDate");
+            String mpesaPhone = DarajaClient.extractStkItem(items, "PhoneNumber");
+            String balance    = DarajaClient.extractStkItem(items, "Balance");
+
+            double paidAmount = contribution.getAmount();
+            if (amountStr != null) {
+                try { paidAmount = Double.parseDouble(amountStr); } catch (NumberFormatException ignored) {}
+            }
+            contribution.setStatus(SplitContributionStatus.PAID);
+            contribution.setProviderReceipt(receipt);
+            contribution.setAmount(paidAmount);
             contributionRepository.save(contribution);
-            log.warn("Split contribution {} FAILED — ResultCode={}", contribution.getId(), resultCode);
-            paymentTransactionService.record(
-                    PaymentTransactionType.MPESA_SPLIT_STK, "FAILED",
-                    contribution.getAmount(),
-                    contribution.getPayerPhone(), contribution.getPayerName(), contribution.getPayerEmail(),
+            log.info("Split contribution {} PAID — receipt={} phone={} amount={}",
+                    contribution.getId(), receipt, mpesaPhone, paidAmount);
+
+            String payerPhone = contribution.getPayerPhone();
+            String payerName  = contribution.getPayerName();
+            String actualPhone = mpesaPhone != null ? mpesaPhone : payerPhone;
+            boolean paidByDifferentPhone = mpesaPhone != null
+                    && !mpesaPhone.equals(payerPhone)
+                    && !mpesaPhone.equals(DarajaClient.normalizePhone(payerPhone != null ? payerPhone : ""));
+            PaymentTransaction tx = paymentTransactionService.record(
+                    PaymentTransactionType.MPESA_SPLIT_STK, "SUCCESSFUL",
+                    paidAmount,
+                    actualPhone,
+                    payerName, contribution.getPayerEmail(),
                     "Split payment contribution for booking " + bookingId,
                     bookingId, null, null, contribution.getId(),
-                    null, contribution.getProviderMerchantRequestId(),
-                    "ResultCode=" + resultCode);
+                    receipt, merchantRequestId, resultDesc, rawJson,
+                    paidByDifferentPhone ? payerPhone : null,
+                    paidByDifferentPhone ? payerName  : null);
+            if (tx != null) {
+                paymentTransactionService.updateMpesaFields(tx.getId(),
+                        merchantRequestId, checkoutRequestId, resultCode, resultDesc,
+                        receipt, txDate, mpesaPhone, balance);
+            }
+
+            checkAndFinalize(contribution.getSplitGroup());
             return true;
+        } catch (Exception e) {
+            log.error("Error processing split STK callback: {}", e.getMessage(), e);
+            return false;
         }
+    }
 
-        contribution.setStatus(SplitContributionStatus.PAID);
-        contribution.setProviderReceipt(receipt);
-        contributionRepository.save(contribution);
-        log.info("Split contribution {} PAID — receipt={}", contribution.getId(), receipt);
-        paymentTransactionService.record(
-                PaymentTransactionType.MPESA_SPLIT_STK, "SUCCESSFUL",
-                contribution.getAmount(),
-                contribution.getPayerPhone(), contribution.getPayerName(), contribution.getPayerEmail(),
-                "Split payment contribution for booking " + bookingId,
-                bookingId, null, null, contribution.getId(),
-                receipt, contribution.getProviderMerchantRequestId(), null);
-
-        checkAndFinalize(contribution.getSplitGroup());
-        return true;
+    private String safeJson(Object obj) {
+        try { return objectMapper.writeValueAsString(obj); } catch (Exception e) { return null; }
     }
 
     /** If all contributions are PAID, create the master Payment and confirm the booking. */

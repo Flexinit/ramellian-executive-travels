@@ -34,7 +34,8 @@ public record PlatformSettingsResponse(
         String instagram,
         String whatsapp,
         String xTwitter,
-        String tiktok
+        String tiktok,
+        String disbursementProvider
 ) {
     public static PlatformSettingsResponse from(PlatformSettings s) {
         return new PlatformSettingsResponse(s.getId(), s.getCommissionRatePct(),
@@ -49,13 +50,13 @@ public record PlatformSettingsResponse(
                 s.isPickupReminderOwnerEnabled(), s.getPickupReminderLeadMinutes(),
                 s.getSupportEmail(), s.getSupportPhone(), s.getAddress(),
                 s.getWebsite(), s.getFacebook(), s.getInstagram(), s.getWhatsapp(),
-                s.getXTwitter(), s.getTiktok());
+                s.getXTwitter(), s.getTiktok(), s.getDisbursementProvider());
     }
 
     public static PlatformSettingsResponse defaults() {
         return new PlatformSettingsResponse(null, 15.0, 10.0, 2, 1.5, 0.0, true, 0.0, true,
                 33.0, true, 50.0, true, true, 1, 1.5,
                 true, true, true, true, 60,
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, "DARAJA");
     }
 }

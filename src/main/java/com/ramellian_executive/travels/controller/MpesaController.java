@@ -1,13 +1,11 @@
 package com.ramellian_executive.travels.controller;
 
-import com.ramellian_executive.travels.entity.Disbursement;
-import com.ramellian_executive.travels.entity.DisbursementStatus;
 import com.ramellian_executive.travels.model.PaymentCheckoutResponse;
 import com.ramellian_executive.travels.model.PaymentStatusResponse;
 import com.ramellian_executive.travels.model.SplitPaymentRequest;
 import com.ramellian_executive.travels.model.SplitPaymentResponse;
-import com.ramellian_executive.travels.repository.DisbursementRepository;
 import com.ramellian_executive.travels.service.DarajaClient;
+import com.ramellian_executive.travels.service.DisbursementService;
 import com.ramellian_executive.travels.service.MpesaPaymentService;
 import com.ramellian_executive.travels.service.SplitPaymentService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,7 +20,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.HashMap;
 
 @RestController
 @RequestMapping("/api/v1/payments/mpesa")
@@ -34,15 +31,25 @@ public class MpesaController {
 
     private final MpesaPaymentService mpesaPaymentService;
     private final SplitPaymentService splitPaymentService;
-    private final DisbursementRepository disbursementRepository;
+    private final DisbursementService disbursementService;
+    private final DarajaClient darajaClient;
 
-    @Operation(summary = "Initiate M-Pesa STK Push for a booking")
+    @Operation(summary = "Initiate M-Pesa STK Push for a booking", operationId = "mpesaCheckout")
     @PostMapping("/bookings/{bookingId}/checkout")
     public PaymentCheckoutResponse checkout(
             @PathVariable UUID bookingId,
             @RequestParam(required = false) String phone,
             Authentication authentication) {
         return mpesaPaymentService.checkout(bookingId, phone, authentication);
+    }
+
+    @Operation(summary = "Retry M-Pesa STK Push for a PENDING or FAILED payment", operationId = "mpesaRetry")
+    @PostMapping("/bookings/{bookingId}/retry")
+    public PaymentCheckoutResponse retry(
+            @PathVariable UUID bookingId,
+            @RequestParam(required = false) String phone,
+            Authentication authentication) {
+        return mpesaPaymentService.retryStkPush(bookingId, phone, authentication);
     }
 
     @Operation(summary = "Get M-Pesa payment status for a booking")
@@ -54,28 +61,14 @@ public class MpesaController {
     /**
      * Safaricom posts the STK Push result here after the customer enters their PIN.
      * Must be publicly accessible (no auth).
+     * Split contributions are matched first; falls through to regular payment if unmatched.
      */
     @Operation(summary = "STK Push callback — called by Safaricom (no auth required)")
     @PostMapping("/stk/callback")
-    @SuppressWarnings("unchecked")
     public Map<String, String> stkCallback(@RequestBody Map<String, Object> payload) {
         log.info("STK callback received: {}", payload);
         try {
-            Map<String, Object> body     = (Map<String, Object>) payload.get("Body");
-            Map<String, Object> callback = (Map<String, Object>) body.get("stkCallback");
-            String checkoutRequestId     = String.valueOf(callback.get("CheckoutRequestID"));
-            int resultCode               = ((Number) callback.get("ResultCode")).intValue();
-
-            List<Map<String, Object>> items = null;
-            if (resultCode == 0) {
-                Map<String, Object> meta = (Map<String, Object>) callback.get("CallbackMetadata");
-                items = (List<Map<String, Object>>) meta.get("Item");
-            }
-            String receipt = items != null
-                    ? DarajaClient.extractStkItem(items, "MpesaReceiptNumber") : null;
-
-            // Route: split contribution takes priority over regular payment
-            boolean handled = splitPaymentService.handleStkCallback(checkoutRequestId, resultCode, receipt);
+            boolean handled = splitPaymentService.handleStkCallback(payload);
             if (!handled) {
                 mpesaPaymentService.handleStkCallback(payload);
             }
@@ -110,54 +103,50 @@ public class MpesaController {
     }
 
     /**
+     * Safaricom posts here after a customer completes a Paybill/Till payment (C2B).
+     * BillRefNumber should be the booking UUID.
+     */
+    @Operation(summary = "C2B confirmation — called by Safaricom after Paybill payment (no auth required)",
+               operationId = "mpesaC2bConfirmation")
+    @PostMapping("/c2b/confirmation")
+    public Map<String, String> c2bConfirmation(@RequestBody Map<String, Object> payload) {
+        log.info("C2B confirmation received: {}", payload);
+        mpesaPaymentService.handleC2bConfirmation(payload);
+        return Map.of("ResultCode", "0", "ResultDesc", "Accepted");
+    }
+
+    /**
+     * Safaricom posts here before confirming a C2B payment (optional validation).
+     * We always accept — business logic is handled in the confirmation.
+     */
+    @Operation(summary = "C2B validation — called by Safaricom before confirming Paybill payment (no auth required)",
+               operationId = "mpesaC2bValidation")
+    @PostMapping("/c2b/validation")
+    public Map<String, String> c2bValidation(@RequestBody Map<String, Object> payload) {
+        log.info("C2B validation received: {}", payload);
+        return Map.of("ResultCode", "0", "ResultDesc", "Accepted");
+    }
+
+    /**
+     * Admin endpoint to register/refresh C2B URLs with Safaricom.
+     * Call this once per environment after deployment.
+     */
+    @Operation(summary = "Register C2B URLs with Safaricom (admin only)", operationId = "registerC2bUrls")
+    @PostMapping("/c2b/register")
+    public Map<String, String> registerC2bUrls() {
+        darajaClient.registerC2bUrls();
+        return Map.of("status", "C2B URLs registered", "shortcode", darajaClient.getShortcode());
+    }
+
+    /**
      * Safaricom posts the B2C result here after a disbursement is processed.
      * Must be publicly accessible (no auth).
      */
     @Operation(summary = "B2C result callback — called by Safaricom (no auth required)")
     @PostMapping("/b2c/result")
-    @SuppressWarnings("unchecked")
     public Map<String, String> b2cResult(@RequestBody Map<String, Object> payload) {
         log.info("B2C result callback received: {}", payload);
-        try {
-            Map<String, Object> result = (Map<String, Object>) payload.get("Result");
-            if (result == null) return Map.of("ResultCode", "0", "ResultDesc", "Accepted");
-
-            int resultCode = ((Number) result.get("ResultCode")).intValue();
-            String originatorId = String.valueOf(result.get("OriginatorConversationID"));
-            String transactionId = String.valueOf(result.getOrDefault("TransactionID", ""));
-
-            // OriginatorConversationID is set to disbursement.getId().toString() in DisbursementService
-            UUID disbursementId = null;
-            try { disbursementId = UUID.fromString(originatorId); } catch (Exception ignored) {}
-
-            if (disbursementId != null) {
-                final UUID finalId = disbursementId;
-                disbursementRepository.findById(finalId).ifPresent(d -> {
-                    if (resultCode == 0) {
-                        d.setStatus(DisbursementStatus.COMPLETED);
-                        d.setReference(transactionId.isBlank() ? d.getReference() : transactionId);
-                        log.info("Disbursement {} marked COMPLETED via B2C callback", finalId);
-                    } else {
-                        d.setStatus(DisbursementStatus.FAILED);
-                        log.warn("Disbursement {} marked FAILED via B2C callback — ResultCode={}", finalId, resultCode);
-                    }
-                    disbursementRepository.save(d);
-                });
-            }
-
-            // Extract result parameters for logging
-            try {
-                Map<String, Object> params = (Map<String, Object>) result.get("ResultParameters");
-                if (params != null) {
-                    List<Map<String, Object>> paramList = (List<Map<String, Object>>) params.get("ResultParameter");
-                    String receipt = DarajaClient.extractResultParam(paramList, "TransactionReceipt");
-                    log.info("B2C result — originatorId={} resultCode={} receipt={}", originatorId, resultCode, receipt);
-                }
-            } catch (Exception ignored) {}
-
-        } catch (Exception e) {
-            log.error("Error processing B2C result callback", e);
-        }
+        disbursementService.handleB2cCallback(payload);
         return Map.of("ResultCode", "0", "ResultDesc", "Accepted");
     }
 

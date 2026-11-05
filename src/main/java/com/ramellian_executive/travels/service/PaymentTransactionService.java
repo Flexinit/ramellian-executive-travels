@@ -52,7 +52,8 @@ public class PaymentTransactionService {
             String providerMessage) {
         return record(type, status, amount, phone, partyName, email, description,
                 bookingId, paymentId, disbursementId, splitContributionId,
-                providerReference, internalReference, providerMessage, null);
+                providerReference, internalReference, providerMessage, null,
+                null, null);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -72,6 +73,31 @@ public class PaymentTransactionService {
             String internalReference,
             String providerMessage,
             String rawCallback) {
+        return record(type, status, amount, phone, partyName, email, description,
+                bookingId, paymentId, disbursementId, splitContributionId,
+                providerReference, internalReference, providerMessage, rawCallback,
+                null, null);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public PaymentTransaction record(
+            PaymentTransactionType type,
+            String status,
+            Double amount,
+            String phone,
+            String partyName,
+            String email,
+            String description,
+            UUID bookingId,
+            UUID paymentId,
+            UUID disbursementId,
+            UUID splitContributionId,
+            String providerReference,
+            String internalReference,
+            String providerMessage,
+            String rawCallback,
+            String renterPhone,
+            String renterName) {
         try {
             PaymentTransaction tx = new PaymentTransaction();
             tx.setType(type);
@@ -80,6 +106,8 @@ public class PaymentTransactionService {
             tx.setPhone(phone);
             tx.setPartyName(partyName);
             tx.setEmail(email);
+            tx.setRenterPhone(renterPhone);
+            tx.setRenterName(renterName);
             tx.setDescription(description);
             tx.setBookingId(bookingId);
             tx.setPaymentId(paymentId);

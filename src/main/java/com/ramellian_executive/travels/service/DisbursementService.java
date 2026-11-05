@@ -12,7 +12,6 @@ import com.ramellian_executive.travels.security.VerificationNotificationService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.Authentication;
@@ -20,8 +19,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -38,9 +39,8 @@ public class DisbursementService {
     private final DarajaClient darajaClient;
     private final PaymentTransactionService paymentTransactionService;
     private final PaymentTransactionRepository paymentTransactionRepository;
-
-    @Value("${app.disbursement.provider:PESAPAL}")
-    private String disbursementProvider;
+    private final PlatformSettingsService platformSettingsService;
+    private final ObjectMapper objectMapper;
 
 
     @Transactional
@@ -94,6 +94,7 @@ public class DisbursementService {
 
         String reference;
         String usedProvider;
+        String disbursementProvider = platformSettingsService.getDisbursementProvider();
         if ("DARAJA".equalsIgnoreCase(disbursementProvider) && darajaClient.isConfigured()) {
             DarajaClient.B2cResult b2c = darajaClient.b2c(
                     disbursement.getId().toString(),
@@ -250,6 +251,80 @@ public class DisbursementService {
                 log.error("Failed to auto-sync disbursement {}", disbursement.getId(), e);
             }
         }
+    }
+
+    @Transactional
+    @SuppressWarnings("unchecked")
+    public void handleB2cCallback(Map<String, Object> payload) {
+        try {
+            Map<String, Object> result = (Map<String, Object>) payload.get("Result");
+            if (result == null) { log.warn("B2C callback with no Result block"); return; }
+
+            int resultCode      = ((Number) result.get("ResultCode")).intValue();
+            String originatorId = String.valueOf(result.get("OriginatorConversationID"));
+            String transactionId= String.valueOf(result.getOrDefault("TransactionID", ""));
+            String resultDesc   = String.valueOf(result.getOrDefault("ResultDesc", ""));
+            String receipt      = extractB2cReceipt(result);
+
+            log.info("B2C callback — originatorId={} resultCode={} receipt={}", originatorId, resultCode, receipt);
+
+            Disbursement disbursement = findDisbursementByOriginatorId(originatorId);
+            if (disbursement == null) return;
+
+            applyB2cResult(disbursement, resultCode, transactionId, resultDesc, receipt);
+            updateB2cLedger(disbursement.getId(), resultCode, resultDesc, receipt);
+        } catch (Exception e) {
+            log.error("Error processing B2C callback: {}", e.getMessage(), e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractB2cReceipt(Map<String, Object> result) {
+        try {
+            Map<String, Object> params = (Map<String, Object>) result.get("ResultParameters");
+            if (params == null) return null;
+            List<Map<String, Object>> list = (List<Map<String, Object>>) params.get("ResultParameter");
+            return DarajaClient.extractResultParam(list, "TransactionReceipt");
+        } catch (Exception e) { return null; }
+    }
+
+    private Disbursement findDisbursementByOriginatorId(String originatorId) {
+        try {
+            UUID id = UUID.fromString(originatorId);
+            Disbursement d = disbursementRepository.findById(id).orElse(null);
+            if (d == null) log.warn("B2C callback for unknown disbursement: {}", id);
+            return d;
+        } catch (Exception e) {
+            log.warn("B2C callback has non-UUID OriginatorConversationID: {}", originatorId);
+            return null;
+        }
+    }
+
+    private void applyB2cResult(Disbursement d, int resultCode, String transactionId,
+                                 String resultDesc, String receipt) {
+        if (resultCode == 0) {
+            d.setStatus(DisbursementStatus.COMPLETED);
+            if (!transactionId.isBlank()) d.setReference(transactionId);
+            disbursementRepository.save(d);
+            updateTxLedger(d, "SUCCESSFUL", receipt);
+            notifyOwner(d);
+            log.info("Disbursement {} COMPLETED via B2C callback", d.getId());
+        } else {
+            d.setStatus(DisbursementStatus.FAILED);
+            disbursementRepository.save(d);
+            updateTxLedger(d, "FAILED", resultDesc);
+            log.warn("Disbursement {} FAILED via B2C callback — ResultCode={}", d.getId(), resultCode);
+        }
+    }
+
+    private void updateB2cLedger(UUID disbursementId, int resultCode, String resultDesc, String receipt) {
+        paymentTransactionRepository.findByDisbursementId(disbursementId).ifPresent(tx ->
+                paymentTransactionService.updateMpesaFields(tx.getId(),
+                        null, null, resultCode, resultDesc, receipt, null, null, null));
+    }
+
+    private String safeJson(Object obj) {
+        try { return objectMapper.writeValueAsString(obj); } catch (Exception e) { return null; }
     }
 
     private void notifyOwner(Disbursement disbursement) {

@@ -101,7 +101,8 @@
       "Bash(ssh *)",
       "Bash(dig *)",
       "Bash(nslookup *)",
-      "Bash(sshpass *)"
+      "Bash(sshpass *)",
+      "Bash(expect *)"
     ]
   }
 }
