@@ -72,7 +72,7 @@ public class MpesaController {
                 items = (List<Map<String, Object>>) meta.get("Item");
             }
             String receipt = items != null
-                    ? DarajaClient.extractResultParam(items, "MpesaReceiptNumber") : null;
+                    ? DarajaClient.extractStkItem(items, "MpesaReceiptNumber") : null;
 
             // Route: split contribution takes priority over regular payment
             boolean handled = splitPaymentService.handleStkCallback(checkoutRequestId, resultCode, receipt);
