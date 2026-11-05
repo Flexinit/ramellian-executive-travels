@@ -127,8 +127,8 @@ public class SplitPaymentService {
             try {
                 DarajaClient.StkPushResult stk = darajaClient.stkPush(
                         c.payerPhone(), c.amount(),
-                        bookingId.toString(),
-                        "Split payment for booking " + bookingId);
+                        "Ramellian",
+                        "Vehicle Rental");
                 saved.setProviderOrderTrackingId(stk.checkoutRequestId());
                 saved.setProviderMerchantRequestId(stk.merchantRequestId());
                 saved.setStatus(SplitContributionStatus.PROCESSING);
@@ -217,8 +217,8 @@ public class SplitPaymentService {
 
         DarajaClient.StkPushResult stk = darajaClient.stkPush(
                 contribution.getPayerPhone(), contribution.getAmount(),
-                bookingId.toString(),
-                "Split payment for booking " + bookingId);
+                "Ramellian",
+                "Vehicle Rental");
         contribution.setProviderOrderTrackingId(stk.checkoutRequestId());
         contribution.setProviderMerchantRequestId(stk.merchantRequestId());
         contribution.setStatus(SplitContributionStatus.PROCESSING);

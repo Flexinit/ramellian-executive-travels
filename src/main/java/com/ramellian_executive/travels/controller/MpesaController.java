@@ -52,10 +52,25 @@ public class MpesaController {
         return mpesaPaymentService.retryStkPush(bookingId, phone, authentication);
     }
 
-    @Operation(summary = "Get M-Pesa payment status for a booking")
+    @Operation(summary = "Get M-Pesa rental payment status for a booking")
     @GetMapping("/bookings/{bookingId}/status")
     public PaymentStatusResponse status(@PathVariable UUID bookingId, Authentication authentication) {
         return mpesaPaymentService.getStatus(bookingId, authentication);
+    }
+
+    @Operation(summary = "Initiate M-Pesa STK Push for a pending overstay charge", operationId = "mpesaOverstayCheckout")
+    @PostMapping("/bookings/{bookingId}/overstay/checkout")
+    public PaymentCheckoutResponse overstayCheckout(
+            @PathVariable UUID bookingId,
+            @RequestParam(required = false) String phone,
+            Authentication authentication) {
+        return mpesaPaymentService.checkoutOverstay(bookingId, phone, authentication);
+    }
+
+    @Operation(summary = "Get overstay charge payment status for a booking")
+    @GetMapping("/bookings/{bookingId}/overstay/status")
+    public PaymentStatusResponse overstayStatus(@PathVariable UUID bookingId, Authentication authentication) {
+        return mpesaPaymentService.getOverstayStatus(bookingId, authentication);
     }
 
     /**

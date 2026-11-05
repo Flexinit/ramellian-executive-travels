@@ -4,8 +4,9 @@ import com.ramellian_executive.travels.entity.Payment;
 
 import java.util.UUID;
 
-public record PaymentStatusResponse(UUID paymentId, UUID bookingId, String provider,
-                                    String status, Double amount, Double baseRentalAmount,
+public record PaymentStatusResponse(UUID paymentId, UUID bookingId, String chargeType,
+                                    String provider, String status,
+                                    Double amount, Double baseRentalAmount,
                                     Double deliveryFee, Double driverCharge, Double transactionFee,
                                     Double platformFee, Double ownerPayout,
                                     String orderTrackingId, String merchantReference,
@@ -18,6 +19,7 @@ public record PaymentStatusResponse(UUID paymentId, UUID bookingId, String provi
         return new PaymentStatusResponse(
                 payment.getId(),
                 payment.getBooking().getId(),
+                payment.getChargeType() != null ? payment.getChargeType().name() : null,
                 payment.getProvider(),
                 payment.getStatus().name(),
                 payment.getAmount(),

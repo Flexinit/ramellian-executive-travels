@@ -91,6 +91,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/payments/mpesa/bookings/*/checkout").authenticated()
                         .requestMatchers("/api/v1/payments/mpesa/bookings/*/retry").authenticated()
                         .requestMatchers("/api/v1/payments/mpesa/bookings/*/status").authenticated()
+                        .requestMatchers("/api/v1/payments/mpesa/bookings/*/overstay/checkout").authenticated()
+                        .requestMatchers("/api/v1/payments/mpesa/bookings/*/overstay/status").authenticated()
                         .requestMatchers("/api/v1/payments/mpesa/bookings/*/split").authenticated()
                         .requestMatchers("/api/v1/payments/mpesa/bookings/*/split/contributions/*/retry").authenticated()
                         .requestMatchers("/api/v1/payments/pesapal/ipn").permitAll()

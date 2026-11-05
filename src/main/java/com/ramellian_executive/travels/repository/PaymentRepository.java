@@ -21,6 +21,7 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     List<Payment> findAllByBookingInAndStatus(List<com.ramellian_executive.travels.entity.Booking> bookings,
                                               PaymentStatus status);
     List<Payment> findAllByProviderOrderTrackingId(String providerOrderTrackingId);
+    List<Payment> findAllByStatusAndProviderAndProviderOrderTrackingIdIsNotNull(PaymentStatus status, String provider);
     Optional<Payment> findFirstByProviderMerchantReferenceStartingWith(String prefix);
     Optional<Payment> findByBookingIdAndChargeType(UUID bookingId, PaymentChargeType chargeType);
     boolean existsByBookingIdAndStatusAndProviderOrderTrackingIdIsNotNull(UUID bookingId, PaymentStatus status);

@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.scheduling.annotation.Scheduled;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -37,6 +38,70 @@ public class MpesaPaymentService {
     private final PaymentTransactionService paymentTransactionService;
     private final ObjectMapper objectMapper;
 
+    /**
+     * Every 2 minutes: query Safaricom for all PENDING M-Pesa payments that have a checkoutRequestId.
+     * This ensures payments are confirmed even when the callback is delayed or never arrives.
+     */
+    @Scheduled(fixedDelay = 2 * 60 * 1000)
+    @Transactional
+    public void pollPendingMpesaPayments() {
+        List<Payment> pending = paymentRepository
+                .findAllByStatusAndProviderAndProviderOrderTrackingIdIsNotNull(
+                        PaymentStatus.PENDING, "MPESA");
+        if (pending.isEmpty()) return;
+        log.info("Polling {} PENDING M-Pesa payment(s) with Safaricom", pending.size());
+        for (Payment payment : pending) {
+            try {
+                DarajaClient.StkQueryResult query = darajaClient.queryStkStatus(
+                        payment.getProviderOrderTrackingId());
+                int resultCode = Integer.parseInt(query.resultCode());
+                if (resultCode == 0) {
+                    payment.setStatus(PaymentStatus.SUCCESSFUL);
+                    paymentRepository.save(payment);
+                    Booking booking = payment.getBooking();
+                    User renter = booking.getUser();
+                    if (booking.getStatus() == BookingStatus.PENDING) {
+                        booking.setStatus(BookingStatus.CONFIRMED);
+                        bookingRepository.save(booking);
+                    }
+                    paymentTransactionService.record(
+                            PaymentTransactionType.MPESA_STK, "SUCCESSFUL",
+                            payment.getAmount(),
+                            renter.getPhoneNumber(),
+                            trim(renter.getFirstName()) + " " + trim(renter.getLastName()),
+                            renter.getEmailAddress(),
+                            "STK poll-confirmed for booking " + booking.getId(),
+                            booking.getId(), payment.getId(),
+                            null, null,
+                            null, payment.getProviderMerchantReference(), query.resultDesc());
+                    try { receiptService.generate(payment); } catch (Exception e) {
+                        log.warn("Receipt generation failed for payment {}", payment.getId(), e);
+                    }
+                    bookingService.notifyBookingConfirmed(booking);
+                    log.info("Poller: payment {} CONFIRMED for booking {}", payment.getId(), booking.getId());
+                } else if (resultCode != 1) {
+                    payment.setStatus(PaymentStatus.FAILED);
+                    paymentRepository.save(payment);
+                    User renter = payment.getBooking().getUser();
+                    paymentTransactionService.record(
+                            PaymentTransactionType.MPESA_STK, "FAILED",
+                            payment.getAmount(),
+                            renter.getPhoneNumber(),
+                            trim(renter.getFirstName()) + " " + trim(renter.getLastName()),
+                            renter.getEmailAddress(),
+                            "STK poll-failed for booking " + payment.getBooking().getId(),
+                            payment.getBooking().getId(), payment.getId(),
+                            null, null,
+                            null, payment.getProviderMerchantReference(), query.resultDesc());
+                    log.warn("Poller: payment {} FAILED for booking {} — ResultCode={} Desc={}",
+                            payment.getId(), payment.getBooking().getId(), resultCode, query.resultDesc());
+                }
+            } catch (Exception e) {
+                log.debug("Poller: STK query skipped for payment {}: {}", payment.getId(), e.getMessage());
+            }
+        }
+    }
+
     @Transactional
     public PaymentCheckoutResponse checkout(UUID bookingId, String phone, Authentication authentication) {
         Booking booking = requireBookingOwnedBy(bookingId, authentication);
@@ -44,6 +109,10 @@ public class MpesaPaymentService {
 
         Payment existing = paymentRepository
                 .findByBookingIdAndChargeType(bookingId, PaymentChargeType.RENTAL).orElse(null);
+        if (existing != null && existing.getStatus() == PaymentStatus.SUCCESSFUL) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Booking rental is already paid — receipt: " + existing.getProviderReceipt());
+        }
         if (existing != null && existing.getStatus() == PaymentStatus.PENDING
                 && "MPESA".equals(existing.getProvider())
                 && existing.getProviderOrderTrackingId() != null) {
@@ -53,14 +122,82 @@ public class MpesaPaymentService {
         String resolvedPhone = resolvePhone(phone, booking);
         BookingFees fees = calculateFees(booking);
         DarajaClient.StkPushResult stk = darajaClient.stkPush(
-                resolvedPhone, fees.total(), bookingId.toString(),
-                "Vehicle rental booking " + bookingId);
+                resolvedPhone, fees.total(), "Ramellian",
+                "Vehicle Rental");
 
         Payment payment = applyCheckout(existing == null ? new Payment() : existing,
                 booking, stk, fees);
         log.info("STK Push initiated for booking {} — checkoutRequestId={} total={}",
                 bookingId, stk.checkoutRequestId(), fees.total());
         return checkoutResponse(payment, fees.base(), fees.processing(), fees.delivery(), fees.driver());
+    }
+
+    /** Initiates M-Pesa STK Push for a pending overstay charge on this booking. */
+    @Transactional
+    public PaymentCheckoutResponse checkoutOverstay(UUID bookingId, String phone, Authentication authentication) {
+        Booking booking = requireBookingOwnedBy(bookingId, authentication);
+
+        Payment overstay = paymentRepository
+                .findByBookingIdAndChargeType(bookingId, PaymentChargeType.OVERSTAY)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No overstay charge found for this booking"));
+
+        if (overstay.getStatus() == PaymentStatus.SUCCESSFUL) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Overstay charge is already paid — receipt: " + overstay.getProviderReceipt());
+        }
+        if (overstay.getStatus() == PaymentStatus.PENDING
+                && "MPESA".equals(overstay.getProvider())
+                && overstay.getProviderOrderTrackingId() != null) {
+            return checkoutResponse(overstay, null, null, null, null);
+        }
+
+        String resolvedPhone = resolvePhone(phone, booking);
+        DarajaClient.StkPushResult stk = darajaClient.stkPush(
+                resolvedPhone, overstay.getAmount(), "Ramellian",
+                "Overstay Charge");
+
+        overstay.setProvider("MPESA");
+        overstay.setPaymentMethod("MPESA");
+        overstay.setProviderOrderTrackingId(stk.checkoutRequestId());
+        overstay.setProviderMerchantReference(stk.merchantRequestId());
+        overstay.setStatus(PaymentStatus.PENDING);
+        Payment saved = paymentRepository.save(overstay);
+
+        log.info("Overstay STK Push initiated for booking {} — checkoutRequestId={} amount={}",
+                bookingId, stk.checkoutRequestId(), overstay.getAmount());
+        return checkoutResponse(saved, null, null, null, null);
+    }
+
+    @Transactional
+    public PaymentStatusResponse getOverstayStatus(UUID bookingId, Authentication authentication) {
+        requireBookingOwnedBy(bookingId, authentication);
+
+        Payment overstay = paymentRepository
+                .findByBookingIdAndChargeType(bookingId, PaymentChargeType.OVERSTAY)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No overstay charge found for this booking"));
+
+        if (overstay.getStatus() == PaymentStatus.PENDING
+                && "MPESA".equals(overstay.getProvider())
+                && overstay.getProviderOrderTrackingId() != null) {
+            try {
+                DarajaClient.StkQueryResult query = darajaClient.queryStkStatus(
+                        overstay.getProviderOrderTrackingId());
+                int resultCode = Integer.parseInt(query.resultCode());
+                if (resultCode == 0) {
+                    overstay.setStatus(PaymentStatus.SUCCESSFUL);
+                    paymentRepository.save(overstay);
+                    log.info("Overstay STK poll resolved PENDING→SUCCESSFUL for booking {}", bookingId);
+                } else if (resultCode != 1) {
+                    overstay.setStatus(PaymentStatus.FAILED);
+                    paymentRepository.save(overstay);
+                }
+            } catch (Exception e) {
+                log.debug("Overstay STK query skipped for booking {}: {}", bookingId, e.getMessage());
+            }
+        }
+        return PaymentStatusResponse.from(overstay);
     }
 
     /** Re-sends the STK prompt for any PENDING or FAILED M-Pesa payment on this booking. */
@@ -94,8 +231,8 @@ public class MpesaPaymentService {
                 payment.getOwnerPayout() != null ? payment.getOwnerPayout() : 0);
 
         DarajaClient.StkPushResult stk = darajaClient.stkPush(
-                resolvedPhone, payment.getAmount(), bookingId.toString(),
-                "Vehicle rental booking " + bookingId);
+                resolvedPhone, payment.getAmount(), "Ramellian",
+                "Vehicle Rental");
 
         payment.setProviderOrderTrackingId(stk.checkoutRequestId());
         payment.setProviderMerchantReference(stk.merchantRequestId());
@@ -193,6 +330,10 @@ public class MpesaPaymentService {
                 return;
             }
             Payment payment = payments.get(0);
+            if (payment.getStatus() == PaymentStatus.SUCCESSFUL) {
+                log.info("STK callback for already-paid payment {} — ignoring duplicate", payment.getId());
+                return;
+            }
 
             Booking booking = payment.getBooking();
             User renter = booking.getUser();
@@ -359,6 +500,10 @@ public class MpesaPaymentService {
         Payment payment = paymentRepository
                 .findByBookingIdAndChargeType(booking.getId(), PaymentChargeType.RENTAL)
                 .orElseGet(() -> buildC2bPayment(booking));
+        if (payment.getStatus() == PaymentStatus.SUCCESSFUL) {
+            log.warn("C2B confirmation for already-paid booking {} transId={} — ignoring", booking.getId(), transId);
+            return;
+        }
         payment.setAmount(amount);
         payment.setProviderReceipt(transId);
         payment.setStatus(PaymentStatus.SUCCESSFUL);

@@ -122,7 +122,7 @@ public class DarajaClient {
         log.info("C2B URL registration response: {}", resp);
     }
 
-    /** Queries STK Push transaction status. */
+    /** Queries STK Push transaction status. Throws if Safaricom returns a non-200 HTTP response. */
     public StkQueryResult queryStkStatus(String checkoutRequestId) {
         ensurePayinConfigured();
         String token = fetchToken();
@@ -136,9 +136,12 @@ public class DarajaClient {
                 "Timestamp", timestamp,
                 "CheckoutRequestID", checkoutRequestId);
 
-        Map<String, Object> resp = post(baseUrl + "/mpesa/stkpushquery/v1/query", token, body);
-        String resultCode = String.valueOf(resp.getOrDefault("ResultCode", "-1"));
+        Map<String, Object> resp = postWithStatus(baseUrl + "/mpesa/stkpushquery/v1/query", token, body);
+        String resultCode = String.valueOf(resp.getOrDefault("ResultCode", ""));
         String resultDesc = String.valueOf(resp.getOrDefault("ResultDesc", ""));
+        if (resultCode.isBlank()) {
+            throw new IllegalStateException("STK query returned no ResultCode — Safaricom may be unavailable");
+        }
         return new StkQueryResult(resultCode, resultDesc);
     }
 
@@ -200,6 +203,30 @@ public class DarajaClient {
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
             log.info("Daraja POST {} → status={} body={}", url, resp.statusCode(), resp.body());
             return MAPPER.readValue(resp.body(), Map.class);
+        } catch (Exception e) {
+            throw new IllegalStateException("Daraja POST failed: " + url + " — " + e.getMessage(), e);
+        }
+    }
+
+    /** Like {@link #post} but throws if Safaricom returns a non-2xx HTTP status. */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> postWithStatus(String url, String token, Object body) {
+        try {
+            String json = MAPPER.writeValueAsString(body);
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + token)
+                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            log.info("Daraja POST {} → status={} body={}", url, resp.statusCode(), resp.body());
+            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                throw new IllegalStateException("Daraja returned HTTP " + resp.statusCode() + ": " + resp.body());
+            }
+            return MAPPER.readValue(resp.body(), Map.class);
+        } catch (IllegalStateException e) {
+            throw e;
         } catch (Exception e) {
             throw new IllegalStateException("Daraja POST failed: " + url + " — " + e.getMessage(), e);
         }
