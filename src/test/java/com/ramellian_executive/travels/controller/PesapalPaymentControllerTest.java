@@ -42,7 +42,7 @@ class PesapalPaymentControllerTest {
     void status_delegatesToService() {
         UUID bookingId = UUID.randomUUID();
         PaymentStatusResponse expected = new PaymentStatusResponse(
-                UUID.randomUUID(), bookingId, "PESAPAL", "SUCCESSFUL",
+                UUID.randomUUID(), bookingId, "RENTAL", "PESAPAL", "SUCCESSFUL",
                 5000.0, 4850.0, 0.0, 0.0, 75.0, 97.0, 4753.0,
                 "TRACK-001", "BOOKING-ref-001", "REC-123");
         when(service.status(bookingId, auth)).thenReturn(expected);
