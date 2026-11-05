@@ -205,11 +205,43 @@ public class MpesaPaymentService {
         }
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public PaymentStatusResponse getStatus(UUID bookingId, Authentication authentication) {
         Payment payment = paymentRepository
                 .findByBookingIdAndChargeType(bookingId, PaymentChargeType.RENTAL)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found"));
+
+        if (payment.getStatus() == PaymentStatus.PENDING
+                && "MPESA".equals(payment.getProvider())
+                && payment.getProviderOrderTrackingId() != null) {
+            try {
+                DarajaClient.StkQueryResult query = darajaClient.queryStkStatus(
+                        payment.getProviderOrderTrackingId());
+                int resultCode = Integer.parseInt(query.resultCode());
+                if (resultCode == 0) {
+                    payment.setStatus(PaymentStatus.SUCCESSFUL);
+                    paymentRepository.save(payment);
+                    Booking booking = payment.getBooking();
+                    if (booking.getStatus() == BookingStatus.PENDING) {
+                        booking.setStatus(BookingStatus.CONFIRMED);
+                        bookingRepository.save(booking);
+                    }
+                    try { receiptService.generate(payment); } catch (Exception e) {
+                        log.warn("Receipt generation failed for payment {}", payment.getId(), e);
+                    }
+                    bookingService.notifyBookingConfirmed(booking);
+                    log.info("STK status poll resolved PENDING→SUCCESSFUL for booking {}", bookingId);
+                } else if (resultCode != 1 /* still processing = code 1 on sandbox */) {
+                    payment.setStatus(PaymentStatus.FAILED);
+                    paymentRepository.save(payment);
+                    log.info("STK status poll resolved PENDING→FAILED for booking {} resultCode={} desc={}",
+                            bookingId, resultCode, query.resultDesc());
+                }
+            } catch (Exception e) {
+                log.debug("STK status query skipped for booking {}: {}", bookingId, e.getMessage());
+            }
+        }
+
         return PaymentStatusResponse.from(payment);
     }
 
