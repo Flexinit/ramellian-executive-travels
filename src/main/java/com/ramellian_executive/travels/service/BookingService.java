@@ -21,6 +21,8 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.beans.factory.annotation.Value;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.ZonedDateTime;
@@ -31,6 +33,7 @@ import java.util.UUID;
 
 @Service
 public class BookingService {
+    private static final Logger log = LoggerFactory.getLogger(BookingService.class);
     private static final List<BookingStatus> RESERVING_STATUSES =
             List.of(BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ACTIVE);
     private final BookingRepository bookingRepository;
@@ -150,6 +153,12 @@ public class BookingService {
 
     @Transactional
     public void notifyBookingConfirmed(Booking booking) {
+        if (paymentRepository != null
+                && !paymentRepository.existsByBookingIdAndStatus(booking.getId(), PaymentStatus.SUCCESSFUL)) {
+            log.warn("notifyBookingConfirmed called for booking {} but no SUCCESSFUL payment found — skipping notifications",
+                    booking.getId());
+            return;
+        }
         User renter = booking.getUser();
         Vehicle vehicle = booking.getVehicle();
         String vehicleTitle = (vehicle != null && vehicle.getModel() != null ? vehicle.getModel() : "Vehicle")
