@@ -465,6 +465,75 @@ public class MpesaPaymentService {
     }
 
     @Transactional
+    public PaymentStatusResponse adminSyncPayment(UUID paymentId) {
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found"));
+
+        if (!"MPESA".equals(payment.getProvider()) || payment.getProviderOrderTrackingId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Payment is not an M-Pesa STK payment");
+        }
+        if (payment.getStatus() == PaymentStatus.SUCCESSFUL) {
+            return PaymentStatusResponse.from(payment);
+        }
+
+        DarajaClient.StkQueryResult query = darajaClient.queryStkStatus(payment.getProviderOrderTrackingId());
+        int resultCode = Integer.parseInt(query.resultCode());
+
+        if (resultCode == 0) {
+            payment.setStatus(PaymentStatus.SUCCESSFUL);
+            paymentRepository.save(payment);
+            Booking booking = payment.getBooking();
+            if (booking.getStatus() == BookingStatus.PENDING) {
+                booking.setStatus(BookingStatus.CONFIRMED);
+                bookingRepository.save(booking);
+            }
+            try { receiptService.generate(payment); } catch (Exception e) {
+                log.warn("Receipt generation failed for payment {}", payment.getId(), e);
+            }
+            bookingService.notifyBookingConfirmed(booking);
+            log.info("Admin sync resolved payment {} → SUCCESSFUL", paymentId);
+        } else {
+            payment.setStatus(PaymentStatus.FAILED);
+            paymentRepository.save(payment);
+            log.info("Admin sync resolved payment {} → FAILED resultCode={} desc={}", paymentId, resultCode, query.resultDesc());
+        }
+        return PaymentStatusResponse.from(payment);
+    }
+
+    @Transactional
+    public PaymentStatusResponse adminOverridePayment(UUID paymentId, String status, String receipt) {
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Payment not found"));
+
+        PaymentStatus newStatus;
+        try {
+            newStatus = PaymentStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid status. Use SUCCESSFUL, FAILED, or PENDING");
+        }
+
+        payment.setStatus(newStatus);
+        if (receipt != null && !receipt.isBlank()) {
+            payment.setProviderReceipt(receipt);
+        }
+        paymentRepository.save(payment);
+
+        if (newStatus == PaymentStatus.SUCCESSFUL) {
+            Booking booking = payment.getBooking();
+            if (booking.getStatus() == BookingStatus.PENDING) {
+                booking.setStatus(BookingStatus.CONFIRMED);
+                bookingRepository.save(booking);
+            }
+            try { receiptService.generate(payment); } catch (Exception e) {
+                log.warn("Receipt generation failed for payment {}", payment.getId(), e);
+            }
+            bookingService.notifyBookingConfirmed(booking);
+        }
+        log.info("Admin manually overrode payment {} → {} receipt={}", paymentId, newStatus, receipt);
+        return PaymentStatusResponse.from(payment);
+    }
+
+    @Transactional
     public void handleC2bConfirmation(Map<String, Object> payload) {
         try {
             String rawJson   = safeJson(payload);

@@ -4,6 +4,7 @@ import com.ramellian_executive.travels.model.PaymentCheckoutResponse;
 import com.ramellian_executive.travels.model.PaymentStatusResponse;
 import com.ramellian_executive.travels.model.SplitPaymentRequest;
 import com.ramellian_executive.travels.model.SplitPaymentResponse;
+import org.springframework.security.access.prepost.PreAuthorize;
 import com.ramellian_executive.travels.service.DarajaClient;
 import com.ramellian_executive.travels.service.DisbursementService;
 import com.ramellian_executive.travels.service.MpesaPaymentService;
@@ -151,6 +152,23 @@ public class MpesaController {
     public Map<String, String> registerC2bUrls() {
         darajaClient.registerC2bUrls();
         return Map.of("status", "C2B URLs registered", "shortcode", darajaClient.getShortcode());
+    }
+
+    @Operation(summary = "Admin: query Safaricom for payment status and auto-update DB", operationId = "adminSyncPayment")
+    @PostMapping("/admin/payments/{paymentId}/sync")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN') or hasAuthority('PAYMENT_MANAGE')")
+    public PaymentStatusResponse adminSyncPayment(@PathVariable UUID paymentId) {
+        return mpesaPaymentService.adminSyncPayment(paymentId);
+    }
+
+    @Operation(summary = "Admin: manually override payment status (use when Safaricom is unreachable)", operationId = "adminOverridePayment")
+    @PatchMapping("/admin/payments/{paymentId}/status")
+    @PreAuthorize("hasRole('SUPER_ADMIN') or hasRole('ADMIN') or hasAuthority('PAYMENT_MANAGE')")
+    public PaymentStatusResponse adminOverridePayment(
+            @PathVariable UUID paymentId,
+            @RequestParam String status,
+            @RequestParam(required = false) String receipt) {
+        return mpesaPaymentService.adminOverridePayment(paymentId, status, receipt);
     }
 
     /**
