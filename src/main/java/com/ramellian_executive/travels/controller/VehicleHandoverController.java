@@ -58,6 +58,24 @@ public class VehicleHandoverController {
                 authentication, request.getRemoteAddr(), request.getHeader("User-Agent"));
     }
 
+    @PostMapping(value = "/bookings/{bookingId}/return", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public List<HandoverResponse> recordReturn(
+            @PathVariable UUID bookingId,
+            @RequestPart(required = false) MultipartFile signature,
+            @RequestPart(required = false) MultipartFile odometerPhoto,
+            @RequestParam(required = false) Integer odometerReading,
+            @RequestParam(required = false) FuelLevel fuelLevel,
+            @RequestParam(required = false) String conditionNotes,
+            @RequestParam(defaultValue = "false") boolean damageNoted,
+            @RequestParam(required = false) String damageDescription,
+            @RequestParam(required = false) String location,
+            Authentication authentication,
+            HttpServletRequest request) {
+        return handoverService.recordReturn(bookingId, signature, odometerPhoto, odometerReading,
+                fuelLevel, conditionNotes, damageNoted, damageDescription, location,
+                authentication, request.getRemoteAddr(), request.getHeader("User-Agent"));
+    }
+
     @GetMapping("/bookings/{bookingId}")
     public List<HandoverResponse> getByBooking(@PathVariable UUID bookingId,
                                                Authentication authentication) {

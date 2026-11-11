@@ -146,6 +146,73 @@ public class VehicleHandoverService {
         return HandoverResponse.from(saved);
     }
 
+    /**
+     * Records a vehicle return when the pickup step was never captured in the system.
+     * Creates a backdated pickup (at the booking's scheduled start time) then records
+     * the dropoff at the current time.  Accessible by the renter, the vehicle owner,
+     * or any staff member with BOOKING_MANAGE authority.
+     */
+    @Transactional
+    public List<HandoverResponse> recordReturn(UUID bookingId,
+                                               MultipartFile dropoffSignature,
+                                               MultipartFile dropoffOdometerPhoto,
+                                               Integer odometerReading, FuelLevel fuelLevel,
+                                               String conditionNotes, boolean damageNoted,
+                                               String damageDescription, String location,
+                                               Authentication authentication, String ipAddress, String userAgent) {
+        Booking booking = findBooking(bookingId);
+        requireRenterOrOwnerOrManager(booking, authentication);
+
+        boolean isConfirmed = booking.getStatus() == BookingStatus.CONFIRMED;
+        boolean isActive    = booking.getStatus() == BookingStatus.ACTIVE;
+
+        if (!isConfirmed && !isActive) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Vehicle return can only be recorded for a confirmed or active booking");
+        }
+        if (!paymentRepository.existsByBookingIdAndStatus(bookingId, PaymentStatus.SUCCESSFUL)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Payment must be completed before recording a return");
+        }
+        if (handoverRepository.existsByBookingIdAndType(bookingId, HandoverType.DROPOFF)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Drop-off has already been recorded for this booking");
+        }
+        if (damageNoted && (damageDescription == null || damageDescription.isBlank())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Damage description is required when damage is noted");
+        }
+
+        if (isConfirmed && !handoverRepository.existsByBookingIdAndType(bookingId, HandoverType.PICKUP)) {
+            // Pickup was never recorded — create a backdated record so the audit trail is complete.
+            String note = "Pickup recorded retroactively at return time. Original pickup was not captured in the system.";
+            VehicleHandover retroPickup = buildHandoverAt(booking, HandoverType.PICKUP,
+                    null, null, note, false, null, null,
+                    authentication.getName(), ipAddress, userAgent,
+                    booking.getStartTime());
+            handoverRepository.save(retroPickup);
+            booking.setStatus(BookingStatus.ACTIVE);
+            bookingRepository.save(booking);
+            disbursementService.createForPickup(bookingId);
+        }
+
+        VehicleHandover dropoff = buildHandover(booking, HandoverType.DROPOFF, odometerReading,
+                fuelLevel, conditionNotes, damageNoted, damageDescription, location,
+                authentication.getName(), ipAddress, userAgent);
+        VehicleHandover savedDropoff = handoverRepository.save(dropoff);
+        saveSignature(dropoffSignature, savedDropoff, HandoverType.DROPOFF);
+        saveOdometerPhoto(dropoffOdometerPhoto, savedDropoff);
+
+        booking.setActualEndTime(ZonedDateTime.now());
+        booking.setStatus(BookingStatus.COMPLETED);
+        bookingRepository.save(booking);
+
+        overstayChargeService.createIfOverstay(booking);
+
+        return handoverRepository.findByBookingIdOrderByHandoverTimeAsc(bookingId)
+                .stream().map(HandoverResponse::from).toList();
+    }
+
     @Transactional(readOnly = true)
     public Resource getOdometerPhoto(UUID handoverId, Authentication authentication) {
         VehicleHandover handover = handoverRepository.findById(handoverId)
@@ -188,10 +255,21 @@ public class VehicleHandoverService {
                                           String conditionNotes, boolean damageNoted,
                                           String damageDescription, String location,
                                           String signerEmail, String ipAddress, String userAgent) {
+        return buildHandoverAt(booking, type, odometerReading, fuelLevel, conditionNotes,
+                damageNoted, damageDescription, location, signerEmail, ipAddress, userAgent,
+                ZonedDateTime.now());
+    }
+
+    private VehicleHandover buildHandoverAt(Booking booking, HandoverType type,
+                                            Integer odometerReading, FuelLevel fuelLevel,
+                                            String conditionNotes, boolean damageNoted,
+                                            String damageDescription, String location,
+                                            String signerEmail, String ipAddress, String userAgent,
+                                            ZonedDateTime handoverTime) {
         VehicleHandover h = new VehicleHandover();
         h.setBooking(booking);
         h.setType(type);
-        h.setHandoverTime(ZonedDateTime.now());
+        h.setHandoverTime(handoverTime);
         h.setOdometerReading(odometerReading);
         h.setFuelLevel(fuelLevel);
         h.setConditionNotes(conditionNotes);
@@ -260,5 +338,22 @@ public class VehicleHandoverService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Only the renter can submit handover details");
         }
+    }
+
+    private void requireRenterOrOwnerOrManager(Booking booking, Authentication authentication) {
+        boolean renter  = booking.getUser().getEmailAddress().equalsIgnoreCase(authentication.getName());
+        boolean owner   = booking.getVehicle().getOwner().getEmailAddress().equalsIgnoreCase(authentication.getName());
+        boolean manager = has(authentication, "BOOKING_MANAGE")
+                || has(authentication, "ROLE_ADMIN")
+                || has(authentication, "ROLE_SUPER_ADMIN");
+        if (!renter && !owner && !manager) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only the renter, vehicle owner, or booking staff can record a vehicle return");
+        }
+    }
+
+    private boolean has(Authentication authentication, String authority) {
+        return authentication.getAuthorities().stream()
+                .anyMatch(a -> authority.equals(a.getAuthority()));
     }
 }

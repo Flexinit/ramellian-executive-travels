@@ -115,8 +115,10 @@ public class SecurityConfig {
                                 .access(superAdminOr("hasAuthority('BOOKING_MANAGE')"))
                         .requestMatchers("/api/v1/payments/**").access(superAdminOr("hasAuthority('PAYMENT_MANAGE')"))
                         .requestMatchers(HttpMethod.POST, "/api/v1/handovers/bookings/*/pickup",
-                                "/api/v1/handovers/bookings/*/dropoff").authenticated()
+                                "/api/v1/handovers/bookings/*/dropoff",
+                                "/api/v1/handovers/bookings/*/return").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/handovers/bookings/*").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/handovers/*/odometer-photo").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/booking-policies/bookings/*/cancel",
                                 "/api/v1/booking-policies/bookings/*/postpone").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/booking-policies/bookings/*/effective").authenticated()
