@@ -23,7 +23,8 @@ public record HandoverResponse(
         String location,
         String signedBy,
         ZonedDateTime signedAt,
-        String bookingStatus
+        String bookingStatus,
+        String odometerPhotoFileName
 ) {
     public static HandoverResponse from(VehicleHandover h) {
         return new HandoverResponse(
@@ -42,7 +43,8 @@ public record HandoverResponse(
                 h.getLocation(),
                 h.getSignedBy(),
                 h.getSignedAt(),
-                h.getBooking().getStatus().name()
+                h.getBooking().getStatus().name(),
+                h.getOdometerPhotoFileName()
         );
     }
 }

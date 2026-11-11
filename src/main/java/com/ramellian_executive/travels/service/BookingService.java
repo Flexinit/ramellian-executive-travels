@@ -93,6 +93,14 @@ public class BookingService {
         } else {
             renter = findUser(authentication.getName());
         }
+        // Block new booking if the renter has an STK push in-flight (payment initiated but not yet resolved).
+        // Staff with BOOKING_MANAGE can bypass this — they may book on behalf of another user.
+        if (!has(authentication, "BOOKING_MANAGE")
+                && paymentRepository.existsByBookingUserIdAndStatusAndProviderOrderTrackingIdIsNotNull(
+                        renter.getId(), PaymentStatus.PENDING)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "You have a pending payment in progress. Please complete or wait for it to resolve before making a new booking.");
+        }
         Vehicle vehicle = vehicleRepository.findById(request.vehicleId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Vehicle not found"));
         if (!vehicle.isAvailable() || vehicle.getApprovalStatus() != VehicleApprovalStatus.APPROVED) {
@@ -386,6 +394,12 @@ public class BookingService {
         }
         if (next == BookingStatus.CANCELLED && !renter && !owner && !manager) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot cancel this booking");
+        }
+        if (next == BookingStatus.CANCELLED && renter && !manager
+                && paymentRepository.existsByBookingIdAndStatusAndProviderOrderTrackingIdIsNotNull(
+                        id, PaymentStatus.PENDING)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Cannot cancel while a payment is being processed. Please wait for the payment to complete or fail.");
         }
         if (next != BookingStatus.CANCELLED && next != BookingStatus.ARCHIVED && !owner && !manager) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the vehicle owner or booking manager can change this status");

@@ -2,10 +2,13 @@ package com.ramellian_executive.travels.service;
 
 import com.ramellian_executive.travels.entity.*;
 import com.ramellian_executive.travels.model.HandoverResponse;
+import com.ramellian_executive.travels.repository.BookingContractRepository;
 import com.ramellian_executive.travels.repository.BookingRepository;
 import com.ramellian_executive.travels.repository.PaymentRepository;
 import com.ramellian_executive.travels.repository.VehicleHandoverRepository;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -27,6 +30,7 @@ public class VehicleHandoverService {
     private final BookingRepository bookingRepository;
     private final PaymentRepository paymentRepository;
     private final VehicleHandoverRepository handoverRepository;
+    private final BookingContractRepository contractRepository;
     private final DisbursementService disbursementService;
     private final OverstayChargeService overstayChargeService;
     private final Path handoverDirectory;
@@ -34,12 +38,14 @@ public class VehicleHandoverService {
     public VehicleHandoverService(BookingRepository bookingRepository,
                                   PaymentRepository paymentRepository,
                                   VehicleHandoverRepository handoverRepository,
+                                  BookingContractRepository contractRepository,
                                   DisbursementService disbursementService,
                                   OverstayChargeService overstayChargeService,
                                   @Value("${app.handover.directory:uploads/handovers}") String handoverDirectory) {
         this.bookingRepository = bookingRepository;
         this.paymentRepository = paymentRepository;
         this.handoverRepository = handoverRepository;
+        this.contractRepository = contractRepository;
         this.disbursementService = disbursementService;
         this.overstayChargeService = overstayChargeService;
         this.handoverDirectory = Paths.get(handoverDirectory).toAbsolutePath().normalize();
@@ -47,6 +53,7 @@ public class VehicleHandoverService {
 
     @Transactional
     public HandoverResponse pickup(UUID bookingId, MultipartFile signature,
+                                   MultipartFile odometerPhoto,
                                    Integer odometerReading, FuelLevel fuelLevel,
                                    String conditionNotes, boolean damageNoted,
                                    String damageDescription, String location,
@@ -66,6 +73,12 @@ public class VehicleHandoverService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Payment must be completed before collecting the vehicle");
         }
+        contractRepository.findByBookingId(bookingId).ifPresent(contract -> {
+            if (contract.getStatus() != ContractStatus.FULLY_SIGNED) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Both parties must sign the rental contract before the vehicle can be collected");
+            }
+        });
         if (handoverRepository.existsByBookingIdAndType(bookingId, HandoverType.PICKUP)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Pickup has already been recorded for this booking");
@@ -80,6 +93,7 @@ public class VehicleHandoverService {
                 authentication.getName(), ipAddress, userAgent);
         VehicleHandover saved = handoverRepository.save(handover);
         saveSignature(signature, saved, HandoverType.PICKUP);
+        saveOdometerPhoto(odometerPhoto, saved);
 
         booking.setStatus(BookingStatus.ACTIVE);
         bookingRepository.save(booking);
@@ -91,6 +105,7 @@ public class VehicleHandoverService {
 
     @Transactional
     public HandoverResponse dropoff(UUID bookingId, MultipartFile signature,
+                                    MultipartFile odometerPhoto,
                                     Integer odometerReading, FuelLevel fuelLevel,
                                     String conditionNotes, boolean damageNoted,
                                     String damageDescription, String location,
@@ -120,6 +135,7 @@ public class VehicleHandoverService {
                 authentication.getName(), ipAddress, userAgent);
         VehicleHandover saved = handoverRepository.save(handover);
         saveSignature(signature, saved, HandoverType.DROPOFF);
+        saveOdometerPhoto(odometerPhoto, saved);
 
         booking.setActualEndTime(ZonedDateTime.now());
         booking.setStatus(BookingStatus.COMPLETED);
@@ -128,6 +144,31 @@ public class VehicleHandoverService {
         overstayChargeService.createIfOverstay(booking);
 
         return HandoverResponse.from(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public Resource getOdometerPhoto(UUID handoverId, Authentication authentication) {
+        VehicleHandover handover = handoverRepository.findById(handoverId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Handover not found"));
+        boolean renter = handover.getBooking().getUser().getEmailAddress()
+                .equalsIgnoreCase(authentication.getName());
+        boolean owner = handover.getBooking().getVehicle().getOwner().getEmailAddress()
+                .equalsIgnoreCase(authentication.getName());
+        if (!renter && !owner) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot access this handover record");
+        }
+        if (handover.getOdometerPhotoFileName() == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No odometer photo for this handover");
+        }
+        try {
+            Resource resource = new UrlResource(handoverDirectory.resolve(handover.getOdometerPhotoFileName()).toUri());
+            if (!resource.exists() || !resource.isReadable()) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Odometer photo file not found");
+            }
+            return resource;
+        } catch (java.net.MalformedURLException ex) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Odometer photo file not found", ex);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -179,6 +220,24 @@ public class VehicleHandoverService {
                     "Could not store handover signature", ex);
         }
         handover.setSignatureFileName(fileName);
+        handoverRepository.save(handover);
+    }
+
+    private void saveOdometerPhoto(MultipartFile photo, VehicleHandover handover) {
+        if (photo == null || photo.isEmpty()) return;
+        if (photo.getContentType() == null || !photo.getContentType().startsWith("image/")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Odometer photo must be an image file");
+        }
+        String ext = resolveExtension(photo.getContentType());
+        String fileName = handover.getId() + "-odometer." + ext;
+        try {
+            Files.createDirectories(handoverDirectory);
+            Files.copy(photo.getInputStream(), handoverDirectory.resolve(fileName));
+        } catch (IOException ex) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Could not store odometer photo", ex);
+        }
+        handover.setOdometerPhotoFileName(fileName);
         handoverRepository.save(handover);
     }
 

@@ -75,6 +75,12 @@ public class PaymentController {
                 authentication, request.getRemoteAddr(), request.getHeader("User-Agent"));
     }
 
+    @GetMapping("/bookings/{bookingId}/contract")
+    public ContractResponse getContractByBooking(@PathVariable UUID bookingId,
+                                                  Authentication authentication) {
+        return paymentService.getContractByBookingId(bookingId, authentication);
+    }
+
     @GetMapping("/contracts/{contractId}")
     public ContractResponse getContract(@PathVariable UUID contractId,
                                         Authentication authentication) {

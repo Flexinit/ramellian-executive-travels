@@ -46,6 +46,9 @@ public class VehicleHandover extends AbstractEntity {
     @Column(name = "signature_file_name")
     private String signatureFileName;
 
+    @Column(name = "odometer_photo_file_name")
+    private String odometerPhotoFileName;
+
     @Column(name = "signed_by")
     private String signedBy;
 

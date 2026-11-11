@@ -362,6 +362,20 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
+    public ContractResponse getContractByBookingId(UUID bookingId, Authentication authentication) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
+        boolean renter = booking.getUser().getEmailAddress().equalsIgnoreCase(authentication.getName());
+        boolean owner = booking.getVehicle().getOwner().getEmailAddress().equalsIgnoreCase(authentication.getName());
+        if (!renter && !owner) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot access this contract");
+        }
+        return contractRepository.findByBookingId(bookingId)
+                .map(ContractResponse::from)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Contract not found"));
+    }
+
+    @Transactional(readOnly = true)
     public ContractResponse getContract(UUID contractId, Authentication authentication) {
         BookingContract contract = contractRepository.findById(contractId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Contract not found"));

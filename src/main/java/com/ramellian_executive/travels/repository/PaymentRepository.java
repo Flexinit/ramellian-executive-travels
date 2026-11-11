@@ -26,6 +26,8 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     Optional<Payment> findByBookingIdAndChargeType(UUID bookingId, PaymentChargeType chargeType);
     boolean existsByBookingIdAndStatusAndProviderOrderTrackingIdIsNotNull(UUID bookingId, PaymentStatus status);
 
+    boolean existsByBookingUserIdAndStatusAndProviderOrderTrackingIdIsNotNull(UUID userId, PaymentStatus status);
+
     @Query("""
             SELECT p FROM Payment p
             WHERE p.booking.vehicle.owner.emailAddress = :ownerEmail
