@@ -315,13 +315,18 @@ public class MpesaPaymentService {
     @SuppressWarnings("unchecked")
     public void handleStkCallback(Map<String, Object> payload) {
         try {
+            log.info("STK callback raw payload: {}", payload);
             String rawJson = safeJson(payload);
             Map<String, Object> body = (Map<String, Object>) payload.get("Body");
+            if (body == null) { log.warn("STK callback missing Body — payload: {}", payload); return; }
             Map<String, Object> callback = (Map<String, Object>) body.get("stkCallback");
+            if (callback == null) { log.warn("STK callback missing stkCallback — payload: {}", payload); return; }
 
+            Object resultCodeRaw = callback.get("ResultCode");
+            if (resultCodeRaw == null) { log.warn("STK callback missing ResultCode — payload: {}", payload); return; }
             String checkoutRequestId = String.valueOf(callback.get("CheckoutRequestID"));
             String merchantRequestId = String.valueOf(callback.getOrDefault("MerchantRequestID", ""));
-            int resultCode = ((Number) callback.get("ResultCode")).intValue();
+            int resultCode = ((Number) resultCodeRaw).intValue();
             String resultDesc = String.valueOf(callback.getOrDefault("ResultDesc", ""));
 
             List<Payment> payments = paymentRepository.findAllByProviderOrderTrackingId(checkoutRequestId);

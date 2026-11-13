@@ -221,6 +221,23 @@ public class DisbursementService {
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Disbursement not found")));
     }
 
+    /** Times out Daraja B2C disbursements stuck in PROCESSING for more than 1 minute. */
+    @Transactional
+    @Scheduled(fixedDelay = 30 * 1000)
+    public void timeoutStaleDarajaDisbursements() {
+        List<Disbursement> processing = disbursementRepository
+                .findByStatusOrderByCreatedAtDesc(DisbursementStatus.PROCESSING);
+        ZonedDateTime cutoff = ZonedDateTime.now().minusMinutes(1);
+        for (Disbursement disbursement : processing) {
+            if (!"DARAJA".equalsIgnoreCase(disbursement.getProvider())) continue;
+            if (disbursement.getTriggeredAt() == null || disbursement.getTriggeredAt().isAfter(cutoff)) continue;
+            disbursement.setStatus(DisbursementStatus.FAILED);
+            disbursementRepository.save(disbursement);
+            updateTxLedger(disbursement, "FAILED", "Timed out — no B2C callback received within 1 minute");
+            log.warn("Daraja disbursement {} timed out — marked FAILED", disbursement.getId());
+        }
+    }
+
     /** Polls Pesapal every 10 minutes for any disbursement still in PROCESSING state. */
     @Transactional
     @Scheduled(fixedDelay = 10 * 60 * 1000)
@@ -257,16 +274,30 @@ public class DisbursementService {
     @SuppressWarnings("unchecked")
     public void handleB2cCallback(Map<String, Object> payload) {
         try {
+            log.info("B2C/TransactionStatus callback raw payload: {}", payload);
             Map<String, Object> result = (Map<String, Object>) payload.get("Result");
-            if (result == null) { log.warn("B2C callback with no Result block"); return; }
+            if (result == null) {
+                log.warn("B2C callback missing Result block — full payload: {}", payload);
+                return;
+            }
 
-            int resultCode      = ((Number) result.get("ResultCode")).intValue();
-            String originatorId = String.valueOf(result.get("OriginatorConversationID"));
-            String transactionId= String.valueOf(result.getOrDefault("TransactionID", ""));
-            String resultDesc   = String.valueOf(result.getOrDefault("ResultDesc", ""));
-            String receipt      = extractB2cReceipt(result);
+            Object resultCodeRaw = result.get("ResultCode");
+            if (resultCodeRaw == null) {
+                log.warn("B2C callback missing ResultCode — full payload: {}", payload);
+                return;
+            }
+            int resultCode       = ((Number) resultCodeRaw).intValue();
+            Object originatorRaw = result.get("OriginatorConversationID");
+            if (originatorRaw == null) {
+                log.warn("B2C callback missing OriginatorConversationID — full payload: {}", payload);
+                return;
+            }
+            String originatorId  = String.valueOf(originatorRaw);
+            String transactionId = String.valueOf(result.getOrDefault("TransactionID", ""));
+            String resultDesc    = String.valueOf(result.getOrDefault("ResultDesc", ""));
+            String receipt       = extractB2cReceipt(result);
 
-            log.info("B2C callback — originatorId={} resultCode={} receipt={}", originatorId, resultCode, receipt);
+            log.info("B2C callback — originatorId={} resultCode={} desc={} receipt={}", originatorId, resultCode, resultDesc, receipt);
 
             Disbursement disbursement = findDisbursementByOriginatorId(originatorId);
             if (disbursement == null) return;
@@ -274,8 +305,70 @@ public class DisbursementService {
             applyB2cResult(disbursement, resultCode, transactionId, resultDesc, receipt);
             updateB2cLedger(disbursement.getId(), resultCode, resultDesc, receipt);
         } catch (Exception e) {
-            log.error("Error processing B2C callback: {}", e.getMessage(), e);
+            log.error("Error processing B2C callback — payload={} error={}", payload, e.getMessage(), e);
         }
+    }
+
+    @Transactional
+    public void handleB2cTimeout(Map<String, Object> payload) {
+        try {
+            log.warn("B2C queue timeout callback — payload: {}", payload);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> result = (Map<String, Object>) payload.get("Result");
+            if (result == null) return;
+            String originatorId = String.valueOf(result.getOrDefault("OriginatorConversationID", ""));
+            if (originatorId.isBlank()) return;
+            Disbursement disbursement = findDisbursementByOriginatorId(originatorId);
+            if (disbursement == null) return;
+            if (disbursement.getStatus() == DisbursementStatus.COMPLETED) return;
+            disbursement.setStatus(DisbursementStatus.FAILED);
+            disbursement.setNotes("B2C failed: request timed out in Safaricom queue");
+            disbursementRepository.save(disbursement);
+            updateTxLedger(disbursement, "FAILED", "Queue timeout");
+            log.warn("Disbursement {} marked FAILED due to B2C queue timeout", disbursement.getId());
+        } catch (Exception e) {
+            log.error("Error processing B2C timeout callback: {}", e.getMessage(), e);
+        }
+    }
+
+    @Transactional
+    public DisbursementResponse adminQueryStatus(UUID disbursementId) {
+        Disbursement disbursement = disbursementRepository.findById(disbursementId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Disbursement not found"));
+        if (!"DARAJA".equalsIgnoreCase(disbursement.getProvider())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transaction status query only supported for Daraja disbursements");
+        }
+        if (disbursement.getReference() == null || disbursement.getReference().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No reference on record — trigger disbursement first");
+        }
+        darajaClient.queryTransactionStatus(disbursement.getReference(), disbursement.getReference());
+        log.info("Transaction status query submitted for disbursement {} reference={}", disbursementId, disbursement.getReference());
+        return DisbursementResponse.from(disbursement);
+    }
+
+    @Transactional
+    public DisbursementResponse adminOverrideStatus(UUID disbursementId, String status, String receipt,
+                                                     Authentication authentication) {
+        Disbursement disbursement = disbursementRepository.findById(disbursementId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Disbursement not found"));
+        DisbursementStatus newStatus;
+        try {
+            newStatus = DisbursementStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid status: " + status);
+        }
+        disbursement.setStatus(newStatus);
+        if (receipt != null && !receipt.isBlank()) disbursement.setReference(receipt);
+        disbursement.setTriggeredBy(authentication.getName());
+        Disbursement saved = disbursementRepository.save(disbursement);
+        if (newStatus == DisbursementStatus.COMPLETED) {
+            updateTxLedger(saved, "SUCCESSFUL", receipt);
+            notifyOwner(saved);
+        } else if (newStatus == DisbursementStatus.FAILED) {
+            updateTxLedger(saved, "FAILED", "Manually overridden by " + authentication.getName());
+        }
+        log.info("Disbursement {} manually overridden to {} by {}", disbursementId, newStatus, authentication.getName());
+        return DisbursementResponse.from(saved);
     }
 
     @SuppressWarnings("unchecked")
@@ -296,18 +389,23 @@ public class DisbursementService {
 
     private void applyB2cResult(Disbursement d, int resultCode, String transactionId,
                                  String resultDesc, String receipt) {
+        if (d.getStatus() == DisbursementStatus.COMPLETED) {
+            log.warn("Late B2C callback for already-COMPLETED disbursement {} — ignoring", d.getId());
+            return;
+        }
         if (resultCode == 0) {
             d.setStatus(DisbursementStatus.COMPLETED);
-            if (!transactionId.isBlank()) d.setReference(transactionId);
+            if (transactionId != null && !transactionId.isBlank()) d.setReference(transactionId);
             disbursementRepository.save(d);
             updateTxLedger(d, "SUCCESSFUL", receipt);
             notifyOwner(d);
             log.info("Disbursement {} COMPLETED via B2C callback", d.getId());
         } else {
             d.setStatus(DisbursementStatus.FAILED);
+            d.setNotes("B2C failed: " + resultDesc);
             disbursementRepository.save(d);
             updateTxLedger(d, "FAILED", resultDesc);
-            log.warn("Disbursement {} FAILED via B2C callback — ResultCode={}", d.getId(), resultCode);
+            log.warn("Disbursement {} FAILED via B2C callback — ResultCode={} desc={}", d.getId(), resultCode, resultDesc);
         }
     }
 

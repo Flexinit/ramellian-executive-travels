@@ -191,6 +191,11 @@ public class MpesaController {
     @PostMapping("/b2c/timeout")
     public Map<String, String> b2cTimeout(@RequestBody Map<String, Object> payload) {
         log.warn("B2C queue timeout received: {}", payload);
+        try {
+            disbursementService.handleB2cTimeout(payload);
+        } catch (Exception e) {
+            log.error("Error handling B2C timeout", e);
+        }
         return Map.of("ResultCode", "0", "ResultDesc", "Accepted");
     }
 }

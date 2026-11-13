@@ -145,6 +145,29 @@ public class DarajaClient {
         return new StkQueryResult(resultCode, resultDesc);
     }
 
+    /**
+     * Triggers an async Transaction Status Query. Safaricom will POST the result
+     * back to the b2cResultUrl — reusing the B2C result callback endpoint.
+     */
+    public void queryTransactionStatus(String transactionId, String originatorConversationId) {
+        ensureB2cConfigured();
+        String token = fetchToken();
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("Initiator", initiatorName);
+        body.put("SecurityCredential", securityCredential);
+        body.put("CommandID", "TransactionStatusQuery");
+        body.put("TransactionID", transactionId != null ? transactionId : "");
+        body.put("OriginatorConversationID", originatorConversationId != null ? originatorConversationId : "");
+        body.put("PartyA", shortcode);
+        body.put("IdentifierType", "4");
+        body.put("ResultURL", b2cResultUrl);
+        body.put("QueueTimeOutURL", b2cQueueTimeoutUrl);
+        body.put("Remarks", "Status query");
+        body.put("Occasion", "");
+        Map<String, Object> resp = post(baseUrl + "/mpesa/transactionstatus/v1/query", token, body);
+        log.info("Transaction status query submitted — transactionId={} originatorId={} resp={}", transactionId, originatorConversationId, resp);
+    }
+
     /** Sends M-Pesa B2C payout to owner's phone. Returns OriginatorConversationID. */
     public B2cResult b2cDisburse(String originatorId, String phone, String name, double amount, String narration) {
         ensureB2cConfigured();

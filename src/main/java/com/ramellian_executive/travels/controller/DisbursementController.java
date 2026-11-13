@@ -71,4 +71,17 @@ public class DisbursementController {
                                        Authentication authentication) {
         return disbursementService.update(id, request, authentication);
     }
+
+    @PostMapping("/{id}/query-status")
+    public DisbursementResponse queryStatus(@PathVariable UUID id) {
+        return disbursementService.adminQueryStatus(id);
+    }
+
+    @PatchMapping("/{id}/status")
+    public DisbursementResponse overrideStatus(@PathVariable UUID id,
+                                               @RequestParam String status,
+                                               @RequestParam(required = false) String receipt,
+                                               Authentication authentication) {
+        return disbursementService.adminOverrideStatus(id, status, receipt, authentication);
+    }
 }
