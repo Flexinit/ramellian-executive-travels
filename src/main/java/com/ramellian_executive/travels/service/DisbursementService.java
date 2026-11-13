@@ -97,7 +97,7 @@ public class DisbursementService {
         String disbursementProvider = platformSettingsService.getDisbursementProvider();
         if ("DARAJA".equalsIgnoreCase(disbursementProvider) && darajaClient.isConfigured()) {
             DarajaClient.B2cResult b2c = darajaClient.b2c(
-                    disbursement.getId().toString(),
+                    java.util.UUID.randomUUID().toString(),
                     disbursement.getOwnerPhone(),
                     disbursement.getOwnerName() != null ? disbursement.getOwnerName() : "",
                     disbursement.getAmount(),
