@@ -42,7 +42,7 @@ public class DisbursementController {
     public DisbursementResponse trigger(@PathVariable UUID id,
                                         @RequestBody(required = false) DisbursementTriggerRequest request,
                                         Authentication authentication) {
-        return disbursementService.trigger(id, request, authentication);
+        return disbursementService.triggerDisbursement(id, request, authentication);
     }
 
     @PostMapping("/{id}/fail")

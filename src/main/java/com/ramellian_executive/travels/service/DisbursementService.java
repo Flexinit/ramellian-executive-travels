@@ -65,8 +65,8 @@ public class DisbursementService {
     }
 
     @Transactional
-    public DisbursementResponse trigger(UUID disbursementId, DisbursementTriggerRequest request,
-                                        Authentication authentication) {
+    public DisbursementResponse triggerDisbursement(UUID disbursementId, DisbursementTriggerRequest request,
+                                                    Authentication authentication) {
         Disbursement disbursement = disbursementRepository.findById(disbursementId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Disbursement not found"));
 
@@ -96,7 +96,7 @@ public class DisbursementService {
         String usedProvider;
         String disbursementProvider = platformSettingsService.getDisbursementProvider();
         if ("DARAJA".equalsIgnoreCase(disbursementProvider) && darajaClient.isConfigured()) {
-            DarajaClient.B2cResult b2c = darajaClient.b2c(
+            DarajaClient.B2cResult b2c = darajaClient.b2cDisburse(
                     java.util.UUID.randomUUID().toString(),
                     disbursement.getOwnerPhone(),
                     disbursement.getOwnerName() != null ? disbursement.getOwnerName() : "",
@@ -289,15 +289,9 @@ public class DisbursementService {
     }
 
     private Disbursement findDisbursementByOriginatorId(String originatorId) {
-        try {
-            UUID id = UUID.fromString(originatorId);
-            Disbursement d = disbursementRepository.findById(id).orElse(null);
-            if (d == null) log.warn("B2C callback for unknown disbursement: {}", id);
-            return d;
-        } catch (Exception e) {
-            log.warn("B2C callback has non-UUID OriginatorConversationID: {}", originatorId);
-            return null;
-        }
+        Disbursement d = disbursementRepository.findByReference(originatorId).orElse(null);
+        if (d == null) log.warn("B2C callback for unknown OriginatorConversationID: {}", originatorId);
+        return d;
     }
 
     private void applyB2cResult(Disbursement d, int resultCode, String transactionId,

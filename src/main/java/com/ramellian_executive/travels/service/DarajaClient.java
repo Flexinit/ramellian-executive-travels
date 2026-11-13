@@ -146,7 +146,7 @@ public class DarajaClient {
     }
 
     /** Sends M-Pesa B2C payout to owner's phone. Returns OriginatorConversationID. */
-    public B2cResult b2c(String originatorId, String phone, String name, double amount, String narration) {
+    public B2cResult b2cDisburse(String originatorId, String phone, String name, double amount, String narration) {
         ensureB2cConfigured();
         String token = fetchToken();
         Map<String, Object> body = Map.of(

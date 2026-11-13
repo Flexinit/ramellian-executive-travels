@@ -23,6 +23,8 @@ public interface DisbursementRepository extends JpaRepository<Disbursement, UUID
 
     List<Disbursement> findByOwnerEmailIgnoreCaseOrderByCreatedAtDesc(String ownerEmail);
 
+    Optional<Disbursement> findByReference(String reference);
+
     @Query("SELECT COALESCE(SUM(d.amount), 0.0) FROM Disbursement d WHERE d.status = :status")
     double sumByStatus(@Param("status") DisbursementStatus status);
 }
