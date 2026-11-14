@@ -273,23 +273,30 @@ public class DisbursementService {
     @Transactional
     @SuppressWarnings("unchecked")
     public void handleB2cCallback(Map<String, Object> payload) {
+        String rawJson;
         try {
-            log.info("B2C/TransactionStatus callback raw payload: {}", payload);
+            rawJson = objectMapper.writeValueAsString(payload);
+            log.info("####B2C/TransactionStatus callback raw payload: {}", rawJson);
+        } catch (Exception e) {
+            rawJson = payload.toString();
+            log.info("####B2C - Exception/TransactionStatus callback raw payload: {}", rawJson);
+        }
+        try {
             Map<String, Object> result = (Map<String, Object>) payload.get("Result");
             if (result == null) {
-                log.warn("B2C callback missing Result block — full payload: {}", payload);
+                log.warn("B2C callback missing Result block — full payload: {}", rawJson);
                 return;
             }
 
             Object resultCodeRaw = result.get("ResultCode");
             if (resultCodeRaw == null) {
-                log.warn("B2C callback missing ResultCode — full payload: {}", payload);
+                log.warn("B2C callback missing ResultCode — full payload: {}", rawJson);
                 return;
             }
             int resultCode       = ((Number) resultCodeRaw).intValue();
             Object originatorRaw = result.get("OriginatorConversationID");
             if (originatorRaw == null) {
-                log.warn("B2C callback missing OriginatorConversationID — full payload: {}", payload);
+                log.warn("B2C callback missing OriginatorConversationID — full payload: {}", rawJson);
                 return;
             }
             String originatorId  = String.valueOf(originatorRaw);

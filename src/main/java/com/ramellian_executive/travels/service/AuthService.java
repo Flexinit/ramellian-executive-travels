@@ -202,7 +202,7 @@ public class AuthService {
         } catch (BadCredentialsException | DisabledException exception) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password");
         }
-        if (user.isTwoFactorEnabled()) {
+        if (user.isTwoFactorEnabled() || isPrivilegedUser(user)) {
             String code = verificationCodeService.generateCode();
             user.setTwoFactorCodeHash(verificationCodeService.hash(code));
             user.setTwoFactorCodeExpiresAt(ZonedDateTime.now().plusMinutes(codeExpirationMinutes));
@@ -372,6 +372,11 @@ public class AuthService {
                     user.getId() != null ? user.getId().toString() : null,
                     "Password reset successfully", "SUCCESS");
         }
+    }
+
+    private boolean isPrivilegedUser(User user) {
+        return user.getRoles().stream()
+                .anyMatch(r -> UserRole.ADMIN.equals(r.getRoleName()));
     }
 
     private User findUser(String email) {
