@@ -1,7 +1,6 @@
 package com.ramellian_executive.travels.controller;
 
 import com.ramellian_executive.travels.entity.DisbursementStatus;
-import com.ramellian_executive.travels.model.B2cCallbackResultResponse;
 import com.ramellian_executive.travels.model.DisbursementResponse;
 import com.ramellian_executive.travels.model.DisbursementTriggerRequest;
 import com.ramellian_executive.travels.model.ManualDisbursementRequest;
@@ -86,13 +85,4 @@ public class DisbursementController {
         return disbursementService.adminOverrideStatus(id, status, receipt, authentication);
     }
 
-    @GetMapping("/b2c-callbacks")
-    public List<B2cCallbackResultResponse> listAllB2cCallbacks() {
-        return disbursementService.listB2cCallbacks(null);
-    }
-
-    @GetMapping("/{id}/b2c-callbacks")
-    public List<B2cCallbackResultResponse> listB2cCallbacksForDisbursement(@PathVariable UUID id) {
-        return disbursementService.listB2cCallbacks(id);
-    }
 }

@@ -1,8 +1,12 @@
 package com.ramellian_executive.travels.service;
 
 import com.ramellian_executive.travels.entity.*;
+import com.ramellian_executive.travels.model.C2bCallbackResultResponse;
+import com.ramellian_executive.travels.repository.C2bCallbackResultRepository;
+import com.ramellian_executive.travels.repository.StkCallbackResultRepository;
 import com.ramellian_executive.travels.model.PaymentCheckoutResponse;
 import com.ramellian_executive.travels.model.PaymentStatusResponse;
+import com.ramellian_executive.travels.model.StkCallbackResultResponse;
 import com.ramellian_executive.travels.repository.*;
 import com.ramellian_executive.travels.security.VerificationNotificationService;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +41,8 @@ public class MpesaPaymentService {
     private final ReceiptService receiptService;
     private final PaymentTransactionService paymentTransactionService;
     private final ObjectMapper objectMapper;
+    private final StkCallbackResultRepository stkCallbackResultRepository;
+    private final C2bCallbackResultRepository c2bCallbackResultRepository;
 
     /**
      * Every 2 minutes: query Safaricom for all PENDING M-Pesa payments that have a checkoutRequestId.
@@ -332,6 +338,8 @@ public class MpesaPaymentService {
             List<Payment> payments = paymentRepository.findAllByProviderOrderTrackingId(checkoutRequestId);
             if (payments.isEmpty()) {
                 log.warn("STK callback received for unknown CheckoutRequestID: {}", checkoutRequestId);
+                saveStkCallbackResult(merchantRequestId, checkoutRequestId, resultCode, resultDesc,
+                        null, null, null, null, null, null, null);
                 return;
             }
             Payment payment = payments.get(0);
@@ -364,6 +372,8 @@ public class MpesaPaymentService {
                             resultCode, resultDesc,
                             null, null, null, null);
                 }
+                saveStkCallbackResult(merchantRequestId, checkoutRequestId, resultCode, resultDesc,
+                        null, null, null, null, null, payment.getId(), booking.getId());
                 return;
             }
 
@@ -418,6 +428,8 @@ public class MpesaPaymentService {
                         resultCode, resultDesc,
                         receipt, txDate, mpesaPhone, balance);
             }
+            saveStkCallbackResult(merchantRequestId, checkoutRequestId, resultCode, resultDesc,
+                    receipt, paidAmount, txDate, mpesaPhone, balance, payment.getId(), booking.getId());
 
             try { receiptService.generate(payment); } catch (Exception e) {
                 log.warn("Receipt generation failed for payment {}", payment.getId(), e);
@@ -555,6 +567,9 @@ public class MpesaPaymentService {
                 Booking booking = bookingRepository.findById(bookingId).orElse(null);
                 if (booking != null) {
                     confirmC2bPayment(booking, transId, msisdn, partyName, amount, rawJson);
+                    saveC2bCallbackResult(payload, transId, amount, billRef, msisdn,
+                            paymentRepository.findByBookingIdAndChargeType(bookingId, PaymentChargeType.RENTAL)
+                                    .map(p -> p.getId()).orElse(null), bookingId);
                     return;
                 }
             }
@@ -563,6 +578,7 @@ public class MpesaPaymentService {
                     amount, msisdn, partyName, null,
                     "C2B — no booking matched BillRefNumber: " + billRef,
                     null, null, null, null, transId, null, null, rawJson);
+            saveC2bCallbackResult(payload, transId, amount, billRef, msisdn, null, null);
             log.warn("C2B payment unlinked — billRef={} transId={}", billRef, transId);
         } catch (Exception e) {
             log.error("Error processing C2B confirmation: {}", e.getMessage(), e);
@@ -635,6 +651,76 @@ public class MpesaPaymentService {
     }
 
     private static String trim(String s) { return s != null ? s.trim() : ""; }
+
+    private void saveStkCallbackResult(String merchantRequestId, String checkoutRequestId,
+                                        int resultCode, String resultDesc,
+                                        String receipt, Double amount, String txDate,
+                                        String phoneNumber, String balance,
+                                        UUID paymentId, UUID bookingId) {
+        try {
+            StkCallbackResult r = new StkCallbackResult();
+            r.setMerchantRequestId(merchantRequestId);
+            r.setCheckoutRequestId(checkoutRequestId);
+            r.setResultCode(resultCode);
+            r.setResultDesc(resultDesc);
+            r.setMpesaReceiptNumber(receipt);
+            r.setAmount(amount);
+            r.setTransactionDate(txDate);
+            r.setPhoneNumber(phoneNumber);
+            r.setBalance(balance);
+            r.setPaymentId(paymentId);
+            r.setBookingId(bookingId);
+            r.setReceivedAt(java.time.ZonedDateTime.now());
+            stkCallbackResultRepository.save(r);
+        } catch (Exception e) {
+            log.error("Failed to save STK callback result: {}", e.getMessage(), e);
+        }
+    }
+
+    private void saveC2bCallbackResult(Map<String, Object> payload, String transId,
+                                        double amount, String billRef, String msisdn,
+                                        UUID paymentId, UUID bookingId) {
+        try {
+            C2bCallbackResult r = new C2bCallbackResult();
+            r.setTransactionType(str(payload.get("TransactionType")));
+            r.setTransactionId(transId);
+            r.setTransTime(str(payload.get("TransTime")));
+            r.setTransAmount(amount);
+            r.setBusinessShortCode(str(payload.get("BusinessShortCode")));
+            r.setBillRefNumber(billRef);
+            r.setInvoiceNumber(str(payload.get("InvoiceNumber")));
+            r.setOrgAccountBalance(str(payload.get("OrgAccountBalance")));
+            r.setThirdPartyTransId(str(payload.get("ThirdPartyTransID")));
+            r.setMsisdn(msisdn);
+            r.setFirstName(str(payload.get("FirstName")));
+            r.setMiddleName(str(payload.get("MiddleName")));
+            r.setLastName(str(payload.get("LastName")));
+            r.setPaymentId(paymentId);
+            r.setBookingId(bookingId);
+            r.setReceivedAt(java.time.ZonedDateTime.now());
+            c2bCallbackResultRepository.save(r);
+        } catch (Exception e) {
+            log.error("Failed to save C2B callback result: {}", e.getMessage(), e);
+        }
+    }
+
+    private static String str(Object o) { return o == null ? null : o.toString().isBlank() ? null : o.toString(); }
+
+    public List<StkCallbackResultResponse> listStkCallbacks(UUID paymentId, UUID bookingId) {
+        List<StkCallbackResult> results;
+        if (paymentId != null) results = stkCallbackResultRepository.findByPaymentIdOrderByReceivedAtDesc(paymentId);
+        else if (bookingId != null) results = stkCallbackResultRepository.findByBookingIdOrderByReceivedAtDesc(bookingId);
+        else results = stkCallbackResultRepository.findAllByOrderByReceivedAtDesc();
+        return results.stream().map(StkCallbackResultResponse::from).toList();
+    }
+
+    public List<C2bCallbackResultResponse> listC2bCallbacks(UUID paymentId, UUID bookingId) {
+        List<C2bCallbackResult> results;
+        if (paymentId != null) results = c2bCallbackResultRepository.findByPaymentIdOrderByReceivedAtDesc(paymentId);
+        else if (bookingId != null) results = c2bCallbackResultRepository.findByBookingIdOrderByReceivedAtDesc(bookingId);
+        else results = c2bCallbackResultRepository.findAllByOrderByReceivedAtDesc();
+        return results.stream().map(C2bCallbackResultResponse::from).toList();
+    }
 
     private String safeJson(Object obj) {
         try { return objectMapper.writeValueAsString(obj); } catch (Exception e) { return null; }
