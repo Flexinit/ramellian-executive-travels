@@ -26,6 +26,7 @@ public class DarajaClient {
 
     private final HttpClient http = HttpClient.newHttpClient();
     private final String baseUrl;
+    private final String b2cUrl;
     private final String consumerKey;
     private final String consumerSecret;
     private final String shortcode;
@@ -40,6 +41,7 @@ public class DarajaClient {
 
     public DarajaClient(
             @Value("${app.daraja.base-url:https://sandbox.safaricom.co.ke}") String baseUrl,
+            @Value("${app.daraja.b2c-url:https://sandbox.safaricom.co.ke/mpesa/b2c/v3/paymentrequest}") String b2cUrl,
             @Value("${app.daraja.consumer-key:}") String consumerKey,
             @Value("${app.daraja.consumer-secret:}") String consumerSecret,
             @Value("${app.daraja.shortcode:174379}") String shortcode,
@@ -52,6 +54,7 @@ public class DarajaClient {
             @Value("${app.daraja.c2b-confirmation-url:}") String c2bConfirmationUrl,
             @Value("${app.daraja.c2b-validation-url:}") String c2bValidationUrl) {
         this.baseUrl = baseUrl;
+        this.b2cUrl = b2cUrl;
         this.consumerKey = consumerKey;
         this.consumerSecret = consumerSecret;
         this.shortcode = shortcode;
@@ -172,19 +175,20 @@ public class DarajaClient {
     public B2cResult b2cDisburse(String originatorId, String phone, String name, double amount, String narration) {
         ensureB2cConfigured();
         String token = fetchToken();
-        Map<String, Object> body = Map.of(
-                "OriginatorConversationID", originatorId,
-                "InitiatorName", initiatorName,
-                "SecurityCredential", securityCredential,
-                "CommandID", "BusinessPayment",
-                "Amount", (long) Math.floor(amount),
-                "PartyA", shortcode,
-                "PartyB", normalizePhone(phone),
-                "Remarks", narration == null ? "Payout" : narration,
-                "QueueTimeOutURL", b2cQueueTimeoutUrl,
-                "ResultURL", b2cResultUrl);
+        Map<String, Object> body = Map.ofEntries(
+                Map.entry("OriginatorConversationID", originatorId),
+                Map.entry("InitiatorName", initiatorName),
+                Map.entry("SecurityCredential", securityCredential),
+                Map.entry("CommandID", "BusinessPayment"),
+                Map.entry("Amount", String.valueOf((long) Math.floor(amount))),
+                Map.entry("PartyA", shortcode),
+                Map.entry("PartyB", normalizePhone(phone)),
+                Map.entry("Remarks", narration == null ? "Payout" : narration),
+                Map.entry("QueueTimeOutURL", b2cQueueTimeoutUrl),
+                Map.entry("ResultURL", b2cResultUrl),
+                Map.entry("Occassion", narration == null ? "" : narration));
 
-        Map<String, Object> resp = post(baseUrl + "/mpesa/b2c/v3/paymentrequest", token, body);
+        Map<String, Object> resp = post(b2cUrl, token, body);
         String responseCode = String.valueOf(resp.getOrDefault("ResponseCode", "1"));
         if (!"0".equals(responseCode)) {
             throw new IllegalStateException("Daraja B2C failed: " + resp);

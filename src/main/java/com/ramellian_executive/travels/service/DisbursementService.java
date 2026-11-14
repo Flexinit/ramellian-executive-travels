@@ -5,6 +5,8 @@ import com.ramellian_executive.travels.model.DisbursementResponse;
 import com.ramellian_executive.travels.model.DisbursementTriggerRequest;
 import com.ramellian_executive.travels.model.ManualDisbursementRequest;
 import com.ramellian_executive.travels.model.UpdateDisbursementRequest;
+import com.ramellian_executive.travels.model.B2cCallbackResultResponse;
+import com.ramellian_executive.travels.repository.B2cCallbackResultRepository;
 import com.ramellian_executive.travels.repository.DisbursementRepository;
 import com.ramellian_executive.travels.repository.PaymentRepository;
 import com.ramellian_executive.travels.repository.PaymentTransactionRepository;
@@ -41,6 +43,7 @@ public class DisbursementService {
     private final PaymentTransactionRepository paymentTransactionRepository;
     private final PlatformSettingsService platformSettingsService;
     private final ObjectMapper objectMapper;
+    private final B2cCallbackResultRepository b2cCallbackResultRepository;
 
 
     @Transactional
@@ -307,8 +310,9 @@ public class DisbursementService {
             log.info("B2C callback — originatorId={} resultCode={} desc={} receipt={}", originatorId, resultCode, resultDesc, receipt);
 
             Disbursement disbursement = findDisbursementByOriginatorId(originatorId);
-            if (disbursement == null) return;
+            saveB2cCallbackResult(payload, result, disbursement);
 
+            if (disbursement == null) return;
             applyB2cResult(disbursement, resultCode, transactionId, resultDesc, receipt);
             updateB2cLedger(disbursement.getId(), resultCode, resultDesc, receipt);
         } catch (Exception e) {
@@ -420,6 +424,56 @@ public class DisbursementService {
         paymentTransactionRepository.findByDisbursementId(disbursementId).ifPresent(tx ->
                 paymentTransactionService.updateMpesaFields(tx.getId(),
                         null, null, resultCode, resultDesc, receipt, null, null, null));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void saveB2cCallbackResult(Map<String, Object> payload, Map<String, Object> result, Disbursement disbursement) {
+        try {
+            List<Map<String, Object>> params = null;
+            Map<String, Object> resultParameters = (Map<String, Object>) result.get("ResultParameters");
+            if (resultParameters != null) {
+                params = (List<Map<String, Object>>) resultParameters.get("ResultParameter");
+            }
+
+            B2cCallbackResult record = new B2cCallbackResult();
+            record.setDisbursement(disbursement);
+            record.setResultType(toInt(result.get("ResultType")));
+            record.setResultCode(toInt(result.get("ResultCode")));
+            record.setResultDesc(str(result.get("ResultDesc")));
+            record.setOriginatorConversationId(str(result.get("OriginatorConversationID")));
+            record.setConversationId(str(result.get("ConversationID")));
+            record.setTransactionId(str(result.get("TransactionID")));
+            record.setTransactionReceipt(DarajaClient.extractResultParam(params, "TransactionReceipt"));
+            record.setTransactionAmount(toDouble(DarajaClient.extractResultParam(params, "TransactionAmount")));
+            record.setReceiverPartyPublicName(DarajaClient.extractResultParam(params, "ReceiverPartyPublicName"));
+            record.setTransactionCompletedDateTime(DarajaClient.extractResultParam(params, "TransactionCompletedDateTime"));
+            record.setB2cUtilityAccountAvailableFunds(toDouble(DarajaClient.extractResultParam(params, "B2CUtilityAccountAvailableFunds")));
+            record.setB2cWorkingAccountAvailableFunds(toDouble(DarajaClient.extractResultParam(params, "B2CWorkingAccountAvailableFunds")));
+            record.setRecipientIsRegisteredCustomer(DarajaClient.extractResultParam(params, "B2CRecipientIsRegisteredCustomer"));
+            record.setB2cChargesPaidAccountAvailableFunds(toDouble(DarajaClient.extractResultParam(params, "B2CChargesPaidAccountAvailableFunds")));
+            record.setReceivedAt(ZonedDateTime.now());
+            b2cCallbackResultRepository.save(record);
+        } catch (Exception e) {
+            log.error("Failed to save B2C callback result record: {}", e.getMessage(), e);
+        }
+    }
+
+    public List<B2cCallbackResultResponse> listB2cCallbacks(UUID disbursementId) {
+        List<B2cCallbackResult> results = disbursementId != null
+                ? b2cCallbackResultRepository.findByDisbursementIdOrderByReceivedAtDesc(disbursementId)
+                : b2cCallbackResultRepository.findAllByOrderByReceivedAtDesc();
+        return results.stream().map(B2cCallbackResultResponse::from).toList();
+    }
+
+    private static String str(Object o) { return o == null ? null : o.toString(); }
+    private static Integer toInt(Object o) {
+        if (o == null) return null;
+        if (o instanceof Number n) return n.intValue();
+        try { return Integer.parseInt(o.toString()); } catch (Exception e) { return null; }
+    }
+    private static Double toDouble(String s) {
+        if (s == null || s.isBlank()) return null;
+        try { return Double.parseDouble(s); } catch (Exception e) { return null; }
     }
 
     private String safeJson(Object obj) {
